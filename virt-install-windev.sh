@@ -30,19 +30,11 @@ INSTALL_PS1=$(mktemp /tmp/virt-install-windev-XXXX.ps1)
 cat <<EOF >$INSTALL_PS1
 # firstboot script from virt-install-windev.sh
 
-# for some reason name resolution is a bit buggy, pre-fetch some URLs...
-(New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org') >\$null
-(New-Object System.Net.WebClient).DownloadString('https://packages.chocolatey.org') >\$null
-
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-
-choco install spice-agent -y
-choco install git -y
-choco install -y python3
-choco install -y cmake
-choco install msys2 -y --params '/NoPath /NoUpdate /InstallDir:C:\\msys64'
-
-pip3 install meson
+winget install --source winget msys2
+winget install --source winget meson
+winget install --source winget git.git
+winget install --source winget spice.vdagent
+winget install --source winget python3
 
 c:\msys64\usr\bin\bash -lc 'pacman -S --noconfirm base-devel vim mingw-w64-ucrt-x86_64-toolchain meson cmake'
 
