@@ -70,6 +70,7 @@ USER_NAME="Developer"
 USER_PASSWORD="password"
 COMPUTER_NAME="WinDev"
 NO_WAIT=0
+FORCE=0
 ISO_PATH=""
 INSIDER=0
 
@@ -96,6 +97,7 @@ Options:
   --user NAME         Local admin username (default: Developer)
   --password PASS     Local admin password (default: password)
   --no-wait           Don't wait for installation to finish
+  --force             Destroy and remove existing VM with the same name
   -h, --help          Show this help
 EOF
 }
@@ -116,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         --user)     USER_NAME="$2"; shift 2 ;;
         --password) USER_PASSWORD="$2"; shift 2 ;;
         --no-wait)  NO_WAIT=1; shift ;;
+        --force)    FORCE=1; shift ;;
         -h|--help)  usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -145,9 +148,17 @@ fi
 
 # --- Check for existing VM ---
 if virsh dominfo "$VM_NAME" &>/dev/null; then
-    echo "Error: VM '$VM_NAME' already exists." >&2
-    echo "Remove it with: virsh destroy $VM_NAME; virsh undefine $VM_NAME --nvram --tpm" >&2
-    exit 1
+    if [[ "$FORCE" -eq 1 ]]; then
+        echo "Removing existing VM '$VM_NAME'..."
+        virsh destroy "$VM_NAME" 2>/dev/null || true
+        virsh undefine "$VM_NAME" --nvram --tpm 2>/dev/null || true
+        rm -f "$CACHE_DIR/${VM_NAME}.qcow2"
+    else
+        echo "Error: VM '$VM_NAME' already exists." >&2
+        echo "Remove it with: virsh destroy $VM_NAME; virsh undefine $VM_NAME --nvram --tpm" >&2
+        echo "Or use --force to replace it." >&2
+        exit 1
+    fi
 fi
 
 # --- ISO download ---
@@ -213,7 +224,7 @@ fi
 # for "autounattend.xml" at boot — no need to modify the Windows ISO itself.
 WORK_DIR=$(mktemp -d "${CACHE_DIR}/windev-setup.XXXXXX")
 TAIL_PID=""
-trap 'kill "$TAIL_PID" 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+trap 'kill "$TAIL_PID" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
 
 cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -665,25 +676,76 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </RunSynchronousCommand>
 
         <!--
+          DEVELOPER MODE: allows sideloading apps, creating symlinks
+          without elevation, and other dev-friendly behaviors.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>20</Order>
+          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
+          LONG PATHS: Win32 APIs normally cap paths at 260 characters.
+          Git repos with deep nesting and node_modules hit this constantly.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>21</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
+          DISABLE LOCK SCREEN: in a VM, the lock screen is just
+          an obstacle. NoLockScreen skips straight to the login prompt.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>22</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization" /v NoLockScreen /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
+          DISABLE RECALL / AI DATA ANALYSIS (Windows 11 24H2+).
+          Recall takes periodic screenshots and indexes them with AI.
+          Pointless in a dev VM and wastes disk/CPU.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>23</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
+          DARK MODE (system-wide): sets the default theme for the
+          taskbar, Start menu, and apps. Per-user defaults are also
+          set in setup.ps1 via the DefaultUser hive.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>24</Order>
+          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v AppsUseLightTheme /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>25</Order>
+          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v SystemUsesLightTheme /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
           COPY AND RUN POWERSHELL SETUP SCRIPT
           Some settings need PowerShell or DefaultUser hive
           manipulation, which is too complex for single reg commands.
           We copy setup.ps1 from the answer-file CD to disk, then run it.
         -->
         <RunSynchronousCommand wcm:action="add">
-          <Order>20</Order>
+          <Order>26</Order>
           <Path>cmd /c "echo [SPECIALIZE] Running setup.ps1 &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>21</Order>
+          <Order>27</Order>
           <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>22</Order>
+          <Order>28</Order>
           <Path>powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>23</Order>
+          <Order>29</Order>
           <Path>cmd /c "echo [SPECIALIZE] Done, rebooting into OOBE &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
@@ -808,8 +870,19 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
 
+        <!--
+          Deploy SSH authorized keys for passwordless login.
+          Windows OpenSSH uses a special file for admin users instead
+          of the usual ~/.ssh/authorized_keys. The ACL must restrict
+          access to SYSTEM and Administrators only, or sshd rejects it.
+        -->
         <SynchronousCommand wcm:action="add">
           <Order>5</Order>
+          <CommandLine>powershell -Command "$f = 'C:\ProgramData\ssh\administrators_authorized_keys'; foreach ($d in 'D','E','F','G','H','I') { $p = \"${d}:\authorized_keys\"; if (Test-Path $p) { Copy-Item $p $f -Force; break } }; if (Test-Path $f) { icacls $f /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' }"</CommandLine>
+        </SynchronousCommand>
+
+        <SynchronousCommand wcm:action="add">
+          <Order>6</Order>
           <CommandLine>cmd /c "echo [OOBE] Removing bloatware &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -822,7 +895,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           profiles also won't get this junk.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>6</Order>
+          <Order>7</Order>
           <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
 
@@ -833,7 +906,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>7</Order>
+          <Order>8</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -843,7 +916,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>8</Order>
+          <Order>9</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
@@ -944,6 +1017,19 @@ foreach ($v in @(
 # Disable Bing web results in Start menu search
 reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\Explorer" /v DisableSearchBoxSuggestions /t REG_DWORD /d 1 /f
 
+# DARK MODE: set per-user default for apps and system chrome
+$personalize = "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+reg.exe add $personalize /v AppsUseLightTheme /t REG_DWORD /d 0 /f
+reg.exe add $personalize /v SystemUsesLightTheme /t REG_DWORD /d 0 /f
+
+# SHOW HIDDEN FILES: Hidden=1 means show, 2 means don't show
+reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v Hidden /t REG_DWORD /d 1 /f
+
+# DISABLE ANIMATIONS: reduces visual effects for snappier VM feel
+reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+reg.exe add "HKU\DefaultUser\Control Panel\Desktop" /v UserPreferencesMask /t REG_BINARY /d 9012038010000000 /f
+reg.exe add "HKU\DefaultUser\Control Panel\Desktop\WindowMetrics" /v MinAnimate /t REG_SZ /d 0 /f
+
 # CRITICAL: Force garbage collection and wait before unloading.
 # PowerShell/.NET may hold references to registry keys. If we unload
 # the hive while it's still referenced, the unload fails silently and
@@ -953,6 +1039,15 @@ reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\Explorer" /v Di
 Start-Sleep -Seconds 1
 reg.exe unload "HKU\DefaultUser"
 Log "[SETUP] DefaultUser hive unloaded"
+
+# =====================================================================
+# POWER SETTINGS
+# =====================================================================
+# In a VM, there's no battery and no physical monitor. Disable screen
+# timeout and sleep so the VM doesn't go dark during long builds.
+Log "[SETUP] Disabling screen timeout and sleep"
+powercfg.exe /change monitor-timeout-ac 0
+powercfg.exe /change standby-timeout-ac 0
 
 # =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
@@ -973,6 +1068,15 @@ PS1EOF
 
 echo "Generated setup.ps1"
 
+# --- Collect SSH public keys ---
+# Bundle the user's SSH public keys into the answer-file ISO so we can
+# install them during FirstLogon. This enables passwordless SSH access.
+SSH_KEY_FILE="$WORK_DIR/authorized_keys"
+if ls ~/.ssh/id_*.pub &>/dev/null; then
+    cat ~/.ssh/id_*.pub > "$SSH_KEY_FILE"
+    echo "Bundled $(wc -l < "$SSH_KEY_FILE") SSH public key(s)"
+fi
+
 # --- Create answer-file ISO ---
 # Package our autounattend.xml and setup.ps1 into a tiny ISO image
 # that gets attached to the VM as a virtual CD-ROM. Windows scans all
@@ -981,7 +1085,9 @@ echo "Generated setup.ps1"
 #   -J = Joliet extensions (Windows-friendly long filenames)
 #   -r = Rock Ridge extensions (Unix permissions, but harmless here)
 UNATTEND_ISO="$CACHE_DIR/${VM_NAME}-autounattend.iso"
-genisoimage -quiet -o "$UNATTEND_ISO" -J -r "$WORK_DIR/autounattend.xml" "$WORK_DIR/setup.ps1"
+ISO_FILES=("$WORK_DIR/autounattend.xml" "$WORK_DIR/setup.ps1")
+[[ -f "$SSH_KEY_FILE" ]] && ISO_FILES+=("$SSH_KEY_FILE")
+genisoimage -quiet -o "$UNATTEND_ISO" -J -r "${ISO_FILES[@]}"
 echo "Created answer-file ISO: $UNATTEND_ISO"
 
 # --- Create disk image ---
