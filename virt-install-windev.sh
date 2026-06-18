@@ -314,6 +314,23 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </FirewallGroup>
       </FirewallGroups>
     </component>
+
+    <component name="Microsoft-Windows-Deployment"
+               processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\autounattend.xml copy /y %d:\autounattend.xml C:\unattend.xml</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
   </settings>
 
   <!-- === Pass 7: oobeSystem — skip OOBE, create local user === -->
@@ -355,6 +372,13 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
       </AutoLogon>
 
       <TimeZone>UTC</TimeZone>
+
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
     </component>
   </settings>
 </unattend>
@@ -419,7 +443,9 @@ done
 if [[ "$NO_WAIT" -eq 0 ]]; then
     echo "Waiting for installation to complete (this may take 30-60 minutes)..."
     echo "Connect with: virt-viewer $VM_NAME"
-    while virsh domstate "$VM_NAME" 2>/dev/null | grep -q running; do
+    while true; do
+        state=$(virsh domstate "$VM_NAME" 2>/dev/null) || break
+        [[ "$state" == "shut off" ]] && break
         sleep 30
     done
 fi
