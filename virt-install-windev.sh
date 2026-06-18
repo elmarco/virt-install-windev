@@ -795,6 +795,21 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
 
         <SynchronousCommand wcm:action="add">
           <Order>3</Order>
+          <CommandLine>cmd /c "echo [OOBE] Installing OpenSSH Server &gt; COM1 || exit /b 0"</CommandLine>
+        </SynchronousCommand>
+
+        <!--
+          Install OpenSSH Server. This must happen during FirstLogon
+          (not specialize) because Add-WindowsCapability needs the
+          Windows Update service running to extract the package.
+        -->
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+        </SynchronousCommand>
+
+        <SynchronousCommand wcm:action="add">
+          <Order>5</Order>
           <CommandLine>cmd /c "echo [OOBE] Removing bloatware &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -807,7 +822,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           profiles also won't get this junk.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>4</Order>
+          <Order>6</Order>
           <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
 
@@ -818,7 +833,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>5</Order>
+          <Order>7</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -828,7 +843,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>6</Order>
+          <Order>8</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
@@ -940,18 +955,6 @@ reg.exe unload "HKU\DefaultUser"
 Log "[SETUP] DefaultUser hive unloaded"
 
 # =====================================================================
-# ENABLE OPENSSH SERVER
-# =====================================================================
-# This lets you SSH into the Windows VM from your Linux host:
-#   ssh Developer@<vm-ip>
-# Add-WindowsCapability installs the SSH server from Windows features.
-# We set it to start automatically and open firewall port 22.
-Log "[SETUP] Enabling OpenSSH Server"
-Add-WindowsCapability -Online -Name "OpenSSH.Server~~~~0.0.1.0" -ErrorAction Continue
-Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue
-netsh.exe advfirewall firewall add rule name="OpenSSH Server" dir=in action=allow protocol=TCP localport=22
-
-# =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
 # =====================================================================
 # WSL lets you run Linux distributions inside Windows. Two features
@@ -1017,7 +1020,9 @@ echo "Created disk image: $DISK_PATH (${DISK_GB} GiB)"
 #   --graphics      SPICE display protocol (better than VNC for Windows).
 #                   listen=none = local socket only, no network listener.
 #   --video         QXL video adapter (designed for SPICE, supports resizing)
-#   --channel       SPICE VMC channel (clipboard sharing, file transfer)
+#   --channel (1st) SPICE VMC channel (clipboard sharing, file transfer)
+#   --channel (2nd) QEMU guest agent socket — lets virsh communicate with
+#                   the guest (graceful shutdown, IP query, filesystem freeze)
 #   --sound         Emulated sound card
 #   --serial        Virtual serial port (COM1 in Windows), backed by a file on the
 #                   host. Windows commands write progress to COM1, and we tail the
@@ -1054,6 +1059,7 @@ virt-install \
     --graphics spice,listen=none \
     --video qxl \
     --channel spicevmc \
+    --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
     --sound default \
     --serial file,path="$INSTALL_LOG" \
     --controller type=scsi,model=virtio-scsi \
@@ -1147,6 +1153,12 @@ if [[ "$NO_WAIT" -eq 0 ]]; then
     wait "$TAIL_PID" 2>/dev/null || true
     # Save final log segment
     cat "$INSTALL_LOG" >> "$INSTALL_LOG.full" 2>/dev/null
+
+    # Eject install media — no longer needed and avoids accidental
+    # re-triggering of the Windows installer on next boot.
+    for dev in $(virsh domblklist "$VM_NAME" 2>/dev/null | awk '/\.iso/{print $1}'); do
+        virsh change-media "$VM_NAME" "$dev" --eject --config 2>/dev/null
+    done
 fi
 
 # --- Success! Print connection instructions ---
