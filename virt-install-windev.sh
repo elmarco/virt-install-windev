@@ -210,6 +210,21 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
                language="neutral" versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+
       <DiskConfiguration>
         <Disk wcm:action="add">
           <DiskID>0</DiskID>
@@ -329,6 +344,82 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <Order>2</Order>
           <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
+        <!-- UAC: Never notify -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Disable VBS / Credential Guard -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Disable Windows Defender services -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>6</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\Sense" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>7</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdBoot" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>8</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdFilter" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>9</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdNisDrv" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>10</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdNisSvc" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>11</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WinDefend" /v Start /t REG_DWORD /d 4 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Disable hibernation / fast startup -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>12</Order>
+          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Telemetry: Security level only -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>13</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Windows Update: Notify before downloading -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>14</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /t REG_DWORD /d 2 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>15</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Disable consumer features / Widgets -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>16</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>17</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Dsh" /v AllowNewsAndInterests /t REG_DWORD /d 0 /f</Path>
+        </RunSynchronousCommand>
+        <!-- Copy and run PowerShell setup script from CD -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>18</Order>
+          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>19</Order>
+          <Path>powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\setup.ps1</Path>
+        </RunSynchronousCommand>
       </RunSynchronous>
     </component>
   </settings>
@@ -376,6 +467,14 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
+          <CommandLine>cmd /c for %d in (D E F G H I) do @if exist %d:\virtio-win-guest-tools.exe %d:\virtio-win-guest-tools.exe /install /passive /norestart</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
@@ -390,9 +489,66 @@ sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g" \
 
 echo "Generated autounattend.xml"
 
+# --- Generate setup.ps1 (runs during specialize pass) ---
+cat > "$WORK_DIR/setup.ps1" <<'PS1EOF'
+$ErrorActionPreference = 'Continue'
+
+# --- Default user registry settings ---
+reg.exe load "HKU\DefaultUser" "C:\Users\Default\NTUSER.DAT"
+
+# Show file extensions, open to This PC
+reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f
+reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v LaunchTo /t REG_DWORD /d 1 /f
+
+# Disable Copilot per-user
+reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\WindowsCopilot" /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f
+
+# Disable content delivery / app suggestions
+$cdm = "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+foreach ($v in @(
+    "ContentDeliveryAllowed",
+    "FeatureManagementEnabled",
+    "OEMPreInstalledAppsEnabled",
+    "PreInstalledAppsEnabled",
+    "PreInstalledAppsEverEnabled",
+    "SilentInstalledAppsEnabled",
+    "SoftLandingEnabled",
+    "SubscribedContentEnabled",
+    "SubscribedContent-310093Enabled",
+    "SubscribedContent-338387Enabled",
+    "SubscribedContent-338388Enabled",
+    "SubscribedContent-338389Enabled",
+    "SubscribedContent-338393Enabled",
+    "SubscribedContent-353694Enabled",
+    "SubscribedContent-353696Enabled",
+    "SubscribedContent-353698Enabled",
+    "SystemPaneSuggestionsEnabled"
+)) {
+    reg.exe add $cdm /v $v /t REG_DWORD /d 0 /f
+}
+
+# Disable Bing search suggestions
+reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\Explorer" /v DisableSearchBoxSuggestions /t REG_DWORD /d 1 /f
+
+[gc]::Collect()
+Start-Sleep -Seconds 1
+reg.exe unload "HKU\DefaultUser"
+
+# --- Enable OpenSSH Server ---
+Add-WindowsCapability -Online -Name "OpenSSH.Server~~~~0.0.1.0" -ErrorAction Continue
+Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue
+netsh.exe advfirewall firewall add rule name="OpenSSH Server" dir=in action=allow protocol=TCP localport=22
+
+# --- Enable WSL ---
+dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux /All /NoRestart
+dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart
+PS1EOF
+
+echo "Generated setup.ps1"
+
 # --- Create answer-file ISO ---
 UNATTEND_ISO="$CACHE_DIR/${VM_NAME}-autounattend.iso"
-genisoimage -quiet -o "$UNATTEND_ISO" -J -r "$WORK_DIR/autounattend.xml"
+genisoimage -quiet -o "$UNATTEND_ISO" -J -r "$WORK_DIR/autounattend.xml" "$WORK_DIR/setup.ps1"
 echo "Created answer-file ISO: $UNATTEND_ISO"
 
 # --- Create disk image ---
