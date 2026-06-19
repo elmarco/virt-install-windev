@@ -727,25 +727,40 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </RunSynchronousCommand>
 
         <!--
+          RDP USB REDIRECTION: allow RemoteFX USB device redirection.
+          This lets xfreerdp's /usb:auto forward host USB devices into
+          the VM over RDP. Both the policy and the service-side setting
+          are needed.
+        -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>26</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fUsbRedirectionEnable /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>27</Order>
+          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fUsbRedirectionUseDefaultList /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+
+        <!--
           COPY AND RUN POWERSHELL SETUP SCRIPT
           Some settings need PowerShell or DefaultUser hive
           manipulation, which is too complex for single reg commands.
           We copy setup.ps1 from the answer-file CD to disk, then run it.
         -->
         <RunSynchronousCommand wcm:action="add">
-          <Order>26</Order>
+          <Order>28</Order>
           <Path>cmd /c "echo [SPECIALIZE] Running setup.ps1 &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>27</Order>
+          <Order>29</Order>
           <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>28</Order>
+          <Order>30</Order>
           <Path>powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>29</Order>
+          <Order>31</Order>
           <Path>cmd /c "echo [SPECIALIZE] Done, rebooting into OOBE &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
