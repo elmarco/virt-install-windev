@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# virt-install-windev.sh — Create a fully-unattended Windows 11 development VM
+# virt-install-windev.sh — Create a fully-unattended Windows 10/11 development VM
 #
-# This script automates the entire process of creating a Windows 11 VM using
+# This script automates the entire process of creating a Windows 10 or 11 VM using
 # libvirt/QEMU/KVM. It downloads the ISO, generates an "answer file"
 # (autounattend.xml) that tells the Windows installer how to proceed without
 # any human interaction, and launches the VM.
@@ -73,21 +73,22 @@ NO_WAIT=0
 FORCE=0
 ISO_PATH=""
 INSIDER=0
+WIN_VERSION=""
 
 usage() {
     cat <<'EOF'
 Usage: virt-install-windev.sh [OPTIONS]
 
-Download a Windows 11 ISO and create a fully-unattended libvirt VM with
+Download a Windows ISO and create a fully-unattended libvirt VM with
 virtio drivers, UEFI, and TPM 2.0.
 
-By default, downloads the Enterprise Evaluation ISO (no sign-in required).
-Use --insider to download the latest Insider Preview build instead (requires
-signing into your Microsoft account in a browser window).
+By default, downloads the Windows 11 Enterprise Evaluation ISO. The Windows
+version is auto-detected from the ISO filename, or can be set with --win10.
 
 Options:
   --name NAME         VM name (default: windev)
   --iso PATH          Use an existing Windows ISO instead of downloading
+  --win10             Use Windows 10 (auto-detected from ISO filename if omitted)
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
   --lang MATCH        Insider language substring (default: 'English (United States)')
@@ -109,6 +110,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --name)     VM_NAME="$2"; shift 2 ;;
         --iso)      ISO_PATH="$2"; shift 2 ;;
+        --win10)    WIN_VERSION=10; shift ;;
         --insider)  INSIDER=1; shift ;;
         --edition)  INSIDER_EDITION="$2"; shift 2 ;;
         --lang)     INSIDER_LANG="$2"; shift 2 ;;
@@ -198,6 +200,11 @@ elif [[ "$INSIDER" -eq 1 ]]; then
         echo "ISO saved to: $WIN_ISO"
     fi
 else
+    if [[ "$WIN_VERSION" == "10" ]]; then
+        echo "Error: Microsoft no longer offers Windows 10 evaluation ISOs for download." >&2
+        echo "Provide a Windows 10 ISO with: $0 --iso /path/to/Win10.iso" >&2
+        exit 1
+    fi
     WIN_ISO="$CACHE_DIR/win11-enterprise-eval.iso"
     if [[ -f "$WIN_ISO" ]]; then
         echo "ISO already cached: $WIN_ISO"
@@ -217,6 +224,29 @@ else
         echo "ISO saved to: $WIN_ISO"
     fi
 fi
+
+# --- Detect Windows version from ISO filename ---
+# Matches: Win10, Windows_10, windows.10, Win_Pro_10, Win11, etc.
+if [[ -z "$WIN_VERSION" ]]; then
+    iso_name="$(basename "$WIN_ISO")"
+    re10='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*10'
+    re11='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*11'
+    if [[ "$iso_name" =~ $re10 ]]; then
+        WIN_VERSION=10
+    elif [[ "$iso_name" =~ $re11 ]]; then
+        WIN_VERSION=11
+    fi
+fi
+WIN_VERSION="${WIN_VERSION:-11}"
+
+if [[ "$WIN_VERSION" == "10" ]]; then
+    VIRTIO_DRIVER_DIR="w10"
+    OS_VARIANT="win10"
+else
+    VIRTIO_DRIVER_DIR="w11"
+    OS_VARIANT="win11"
+fi
+echo "Windows version: $WIN_VERSION (virtio drivers: $VIRTIO_DRIVER_DIR)"
 
 # --- Generate autounattend.xml ---
 # We build the XML in a temp directory, then package it into an ISO that gets
@@ -279,25 +309,25 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <DriverPaths>
         <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-          <Path>E:\NetKVM\w11\amd64</Path>
+          <Path>E:\NetKVM\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="2">
-          <Path>E:\viostor\w11\amd64</Path>
+          <Path>E:\viostor\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="3">
-          <Path>E:\qxldod\w11\amd64</Path>
+          <Path>E:\qxldod\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="4">
-          <Path>E:\vioscsi\w11\amd64</Path>
+          <Path>E:\vioscsi\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="5">
-          <Path>E:\Balloon\w11\amd64</Path>
+          <Path>E:\Balloon\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="6">
-          <Path>E:\vioserial\w11\amd64</Path>
+          <Path>E:\vioserial\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="7">
-          <Path>E:\viorng\w11\amd64</Path>
+          <Path>E:\viorng\VIRTIO_DRIVER_DIR\amd64</Path>
         </PathAndCredentials>
       </DriverPaths>
     </component>
@@ -420,13 +450,10 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </OSImage>
       </ImageInstall>
 
-      <!--
-        PRODUCT KEY
-        This is a Generic Volume License Key (GVLK) for Windows 11
-        Enterprise. It's not a piracy tool — GVLKs are published by
-        Microsoft and only activate against a KMS server. For eval
-        ISOs it satisfies the installer; the 90-day trial is separate.
-      -->
+      <!-- BEGIN_WIN11_ONLY: PRODUCT KEY
+        GVLK for Windows Enterprise — tells the Win11 installer which
+        edition to install. Not needed for Win10 (image index suffices)
+        and can cause the edition-selection screen on non-VL Win10 ISOs. -->
       <UserData>
         <AcceptEula>true</AcceptEula>
         <ProductKey>
@@ -434,6 +461,12 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <WillShowUI>Never</WillShowUI>
         </ProductKey>
       </UserData>
+      <!-- END_WIN11_ONLY -->
+      <!-- BEGIN_WIN10_ONLY: Accept EULA without product key -->
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+      <!-- END_WIN10_ONLY -->
     </component>
   </settings>
 
@@ -753,7 +786,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>29</Order>
-          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
+          <Path>cmd /c mkdir C:\Windows\Setup\Scripts 2>nul &amp; for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>30</Order>
@@ -781,11 +814,9 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
       5. Shut down (signaling to our script that install is done)
   -->
   <settings pass="oobeSystem">
-    <!-- Pre-set locale so OOBE skips the "Is this the right country?"
-         and keyboard layout screens. Without this component in the
-         oobeSystem pass, Windows 11 24H2+ (ConX engine) shows the
-         interactive region selector even when Shell-Setup has OOBE
-         settings configured. -->
+    <!-- Pre-set locale so OOBE skips the region and keyboard screens.
+         Required for both Win10 and Win11 — without this, the interactive
+         region selector appears even when Shell-Setup OOBE is configured. -->
     <component name="Microsoft-Windows-International-Core"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
@@ -875,15 +906,18 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>cmd /c "echo [OOBE] Installing OpenSSH Server &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
-        <!--
-          Install OpenSSH Server. This must happen during FirstLogon
-          (not specialize) because Add-WindowsCapability needs the
-          Windows Update service running to extract the package.
-        -->
+        <!-- BEGIN_WIN11_ONLY: OpenSSH via built-in capability -->
         <SynchronousCommand wcm:action="add">
           <Order>4</Order>
           <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
+        <!-- END_WIN11_ONLY -->
+        <!-- BEGIN_WIN10_ONLY: OpenSSH via Win32-OpenSSH (built-in capability ships broken sshd on Win10 22H2) -->
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+        </SynchronousCommand>
+        <!-- END_WIN10_ONLY -->
 
         <!--
           Deploy SSH authorized keys for passwordless login.
@@ -940,11 +974,20 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
 </unattend>
 XMLEOF
 
-# Substitute configurable username/password
-sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g" \
+# Substitute configurable values into the XML template
+sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g" \
     "$WORK_DIR/autounattend.xml"
 
-echo "Generated autounattend.xml"
+# Remove version-specific XML blocks
+if [[ "$WIN_VERSION" == "10" ]]; then
+    sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' \
+        "$WORK_DIR/autounattend.xml"
+else
+    sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' \
+        "$WORK_DIR/autounattend.xml"
+fi
+
+echo "Generated autounattend.xml (Windows $WIN_VERSION)"
 
 # --- Generate setup.ps1 (runs during specialize pass) ---
 #
@@ -1124,13 +1167,13 @@ echo "Created disk image: $DISK_PATH (${DISK_GB} GiB)"
 # Each flag configures a piece of virtual hardware. Here's what each does:
 #
 #   --name          Unique name for the VM (used by virsh, virt-viewer, etc.)
-#   --memory        RAM in MiB (8192 = 8 GB — the minimum for comfortable Win11)
+#   --memory        RAM in MiB (8192 = 8 GB — minimum for comfortable Win11)
 #   --vcpus         Number of virtual CPU cores
-#   --os-variant    Tells libvirt "this is Windows 11" so it picks good defaults
-#                   (e.g., Hyper-V enlightenments for better performance)
+#   --os-variant    Tells libvirt which Windows version this is (win10 or win11)
+#                   so it picks good defaults (e.g., Hyper-V enlightenments)
 #   --boot          Boot order: try CD-ROM first (for install), then hard disk.
 #                   "uefi" tells libvirt to use OVMF firmware instead of legacy BIOS.
-#   --tpm           Emulated TPM 2.0 — Windows 11 requires this. swtpm provides it.
+#   --tpm           Emulated TPM 2.0 — required by Windows 11, optional for Win10.
 #   --disk (first)  The main virtual hard drive: our qcow2 image over virtio bus.
 #                   cache=writeback improves write performance (safe for a dev VM).
 #   --cdrom         The Windows ISO (first CD-ROM, typically drive D:)
@@ -1159,6 +1202,7 @@ INSTALL_LOG="$CACHE_DIR/${VM_NAME}-install.log"
 
 echo ""
 echo "Creating VM '$VM_NAME'..."
+echo "  Windows: $WIN_VERSION"
 echo "  vCPUs:   $VCPUS"
 echo "  RAM:     $RAM_MB MiB"
 echo "  Disk:    $DISK_GB GiB"
@@ -1169,7 +1213,7 @@ virt-install \
     --name "$VM_NAME" \
     --memory "$RAM_MB" \
     --vcpus "$VCPUS" \
-    --os-variant win11 \
+    --os-variant "$OS_VARIANT" \
     --boot uefi,cdrom,hd \
     --tpm backend.type=emulator,backend.version=2.0,model=tpm-crb \
     --disk path="$DISK_PATH",format=qcow2,bus=virtio,cache=writeback \
@@ -1294,9 +1338,14 @@ echo "Connect with:"
 echo "  virt-viewer $VM_NAME"
 echo "  (or: virsh domdisplay $VM_NAME)"
 echo ""
-echo "RDP (after install completes):"
-echo "  Get VM IP:  virsh domifaddr $VM_NAME"
-echo "  Connect:    xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution"
+echo "Get VM IP (requires guest agent):"
+echo "  virsh domifaddr $VM_NAME --source agent"
+echo ""
+echo "SSH:"
+echo "  ssh $USER_NAME@<IP>"
+echo ""
+echo "RDP:"
+echo "  xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution"
 echo ""
 echo "VM management:"
 echo "  virsh start $VM_NAME"

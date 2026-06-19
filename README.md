@@ -1,8 +1,8 @@
 # virt-install-windev
 
-Create a fully-unattended Windows 11 development VM on Linux using libvirt/QEMU/KVM.
+Create a fully-unattended Windows 10 or 11 development VM on Linux using libvirt/QEMU/KVM.
 
-One command, no clicking — the script handles partitioning, driver injection, account creation, and post-install configuration automatically.
+One command, no clicking — the script handles partitioning, driver injection, account creation, and post-install configuration automatically. The Windows version is auto-detected from the ISO filename.
 
 ## Quick start
 
@@ -14,10 +14,11 @@ sudo dnf install virt-install qemu-img genisoimage swtpm virtio-win edk2-ovmf
 ./virt-install-windev.sh
 ```
 
-Or with an existing ISO:
+Or with an existing ISO (version auto-detected from filename):
 
 ```bash
-./virt-install-windev.sh --iso ~/Downloads/Windows11.iso
+./virt-install-windev.sh --iso ~/Downloads/Win11_24H2_English_x64.iso
+./virt-install-windev.sh --iso ~/Downloads/Win10_22H2_English_x64.iso
 ```
 
 The script waits for installation to complete (~30-60 minutes), showing real-time progress via serial port logging. When it finishes, the VM is shut down and ready to use.
@@ -29,7 +30,7 @@ The script waits for installation to complete (~30-60 minutes), showing real-tim
 | `virt-install` | Creates and launches VMs |
 | `qemu-img` | Creates virtual disk images |
 | `genisoimage` | Builds the answer-file ISO |
-| `swtpm` | Software TPM 2.0 emulator (Windows 11 requirement) |
+| `swtpm` | Software TPM 2.0 emulator (required by Win11, optional for Win10) |
 | `virtio-win` | Paravirtualized drivers for fast disk/network I/O |
 | `edk2-ovmf` | UEFI firmware for VMs |
 
@@ -41,6 +42,7 @@ The script waits for installation to complete (~30-60 minutes), showing real-tim
 Options:
   --name NAME         VM name (default: windev)
   --iso PATH          Use an existing Windows ISO instead of downloading
+  --win10             Use Windows 10 (auto-detected from ISO filename if omitted)
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
   --lang MATCH        Insider language substring (default: 'English (United States)')
@@ -50,6 +52,7 @@ Options:
   --user NAME         Local admin username (default: Developer)
   --password PASS     Local admin password (default: password)
   --no-wait           Don't wait for installation to finish
+  --force             Destroy and replace an existing VM with the same name
 ```
 
 ## What gets configured
@@ -74,8 +77,9 @@ The unattended install sets up a dev-friendly Windows environment:
 - **No lock screen** — skips straight to login
 - **No screen timeout** — monitor and sleep timers disabled
 - **No animations** — snappier UI in a VM
-- **No Recall/AI** — Windows AI data analysis disabled
+- **No Recall/AI** — Windows AI data analysis disabled (Win11 24H2+)
 - **No Widgets/Copilot** — disabled
+- **RDP USB redirection** — RemoteFX USB policy enabled (functional on Win10, broken on Win11 24H2+)
 
 ## Connecting to the VM
 
@@ -163,13 +167,25 @@ virt-viewer windev
 ~/.cache/virt-install-windev/windev-install.log.full
 ```
 
-**Installation stuck at OOBE screens:** Windows 11 24H2+ uses a new "ConX" OOBE engine. The script handles this by setting locale in the oobeSystem pass, but Insider Preview builds sometimes change behavior. Check `virt-viewer` to see what's on screen.
+**Installation stuck at OOBE screens:** Windows 11 24H2+ uses a new "ConX" OOBE engine. The script handles this by setting locale in the oobeSystem pass (automatically skipped for Win10). Insider Preview builds sometimes change behavior — check `virt-viewer` to see what's on screen.
 
 **VM won't boot from CD:** The script sends Enter keys at the right time to trigger "Press any key to boot from CD." If OVMF times out, try running the script again — timing depends on host CPU speed and TPM initialization.
 
-**OpenSSH not working:** `Add-WindowsCapability` sometimes fails if Windows Update service isn't ready. SSH into the VM via RDP and run:
+**OpenSSH not working (Win11):** `Add-WindowsCapability` sometimes fails if Windows Update service isn't ready. Connect via RDP and run:
 ```powershell
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Set-Service sshd -StartupType Automatic
+Start-Service sshd
+```
+
+**OpenSSH not working (Win10):** The built-in OpenSSH capability on Win10 22H2 ships a broken `sshd.exe`. The script downloads Win32-OpenSSH from GitHub instead, which requires internet during first boot. If it fails, connect via RDP and install manually:
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name
+Invoke-WebRequest "https://github.com/PowerShell/Win32-OpenSSH/releases/download/$tag/OpenSSH-Win64.zip" -OutFile $env:TEMP\OpenSSH.zip
+Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force
+& 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'
+& 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A
 Set-Service sshd -StartupType Automatic
 Start-Service sshd
 ```
