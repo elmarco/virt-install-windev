@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# virt-install-windev.sh — Create a fully-unattended Windows 10/11 development VM
+# virt-install-windev.sh — Create a fully-unattended Windows 10/11/Server 2022 development VM
 #
 # This script automates the entire process of creating a Windows 10 or 11 VM using
 # libvirt/QEMU/KVM. It downloads the ISO, generates an "answer file"
@@ -83,12 +83,14 @@ Download a Windows ISO and create a fully-unattended libvirt VM with
 virtio drivers, UEFI, and TPM 2.0.
 
 By default, downloads the Windows 11 Enterprise Evaluation ISO. The Windows
-version is auto-detected from the ISO filename, or can be set with --win10.
+version is auto-detected from the ISO filename, or can be set with --win10
+or --server2022.
 
 Options:
   --name NAME         VM name (default: windev)
   --iso PATH          Use an existing Windows ISO instead of downloading
   --win10             Use Windows 10 (auto-detected from ISO filename if omitted)
+  --server2022        Use Windows Server 2022 (auto-detected from ISO filename if omitted)
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
   --lang MATCH        Insider language substring (default: 'English (United States)')
@@ -111,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --name)     VM_NAME="$2"; shift 2 ;;
         --iso)      ISO_PATH="$2"; shift 2 ;;
         --win10)    WIN_VERSION=10; shift ;;
+        --server2022) WIN_VERSION=server2022; shift ;;
         --insider)  INSIDER=1; shift ;;
         --edition)  INSIDER_EDITION="$2"; shift 2 ;;
         --lang)     INSIDER_LANG="$2"; shift 2 ;;
@@ -200,6 +203,12 @@ elif [[ "$INSIDER" -eq 1 ]]; then
         echo "ISO saved to: $WIN_ISO"
     fi
 else
+    if [[ "$WIN_VERSION" == "server2022" ]]; then
+        echo "Error: Windows Server 2022 evaluation ISOs require manual download." >&2
+        echo "Download from: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022" >&2
+        echo "Then re-run with: $0 --server2022 --iso /path/to/SERVER_EVAL.iso" >&2
+        exit 1
+    fi
     if [[ "$WIN_VERSION" == "10" ]]; then
         echo "Error: Microsoft no longer offers Windows 10 evaluation ISOs for download." >&2
         echo "Provide a Windows 10 ISO with: $0 --iso /path/to/Win10.iso" >&2
@@ -231,7 +240,10 @@ if [[ -z "$WIN_VERSION" ]]; then
     iso_name="$(basename "$WIN_ISO")"
     re10='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*10'
     re11='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*11'
-    if [[ "$iso_name" =~ $re10 ]]; then
+    resvr2022='([Ss]erver.*2022|SERVER_EVAL)'
+    if [[ "$iso_name" =~ $resvr2022 ]]; then
+        WIN_VERSION=server2022
+    elif [[ "$iso_name" =~ $re10 ]]; then
         WIN_VERSION=10
     elif [[ "$iso_name" =~ $re11 ]]; then
         WIN_VERSION=11
@@ -239,13 +251,11 @@ if [[ -z "$WIN_VERSION" ]]; then
 fi
 WIN_VERSION="${WIN_VERSION:-11}"
 
-if [[ "$WIN_VERSION" == "10" ]]; then
-    VIRTIO_DRIVER_DIR="w10"
-    OS_VARIANT="win10"
-else
-    VIRTIO_DRIVER_DIR="w11"
-    OS_VARIANT="win11"
-fi
+case "$WIN_VERSION" in
+    10)          VIRTIO_DRIVER_DIR="w10";  OS_VARIANT="win10";   IMAGE_INDEX=1 ;;
+    server2022)  VIRTIO_DRIVER_DIR="2k22"; OS_VARIANT="win2k22"; IMAGE_INDEX=2 ;;
+    *)           VIRTIO_DRIVER_DIR="w11";  OS_VARIANT="win11";   IMAGE_INDEX=1 ;;
+esac
 echo "Windows version: $WIN_VERSION (virtio drivers: $VIRTIO_DRIVER_DIR)"
 
 # --- Generate autounattend.xml ---
@@ -440,7 +450,7 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <InstallFrom>
             <MetaData wcm:action="add">
               <Key>/IMAGE/INDEX</Key>
-              <Value>1</Value>
+              <Value>IMAGE_INDEX</Value>
             </MetaData>
           </InstallFrom>
           <InstallTo>
@@ -467,6 +477,17 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         <AcceptEula>true</AcceptEula>
       </UserData>
       <!-- END_WIN10_ONLY -->
+      <!-- BEGIN_SERVER2022_ONLY: PRODUCT KEY
+        GVLK for Windows Server 2022 Standard — required for unattended
+        edition selection. Selects Standard with Desktop Experience (index 2). -->
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <ProductKey>
+          <Key>VDYBN-27WPP-V4HQT-9VMD4-VMK7H</Key>
+          <WillShowUI>Never</WillShowUI>
+        </ProductKey>
+      </UserData>
+      <!-- END_SERVER2022_ONLY -->
     </component>
   </settings>
 
@@ -918,6 +939,12 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
         <!-- END_WIN10_ONLY -->
+        <!-- BEGIN_SERVER2022_ONLY: OpenSSH via built-in capability -->
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+        </SynchronousCommand>
+        <!-- END_SERVER2022_ONLY -->
 
         <!--
           Deploy SSH authorized keys for passwordless login.
@@ -975,17 +1002,27 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
 XMLEOF
 
 # Substitute configurable values into the XML template
-sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g" \
+sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g; s/IMAGE_INDEX/${IMAGE_INDEX}/g" \
     "$WORK_DIR/autounattend.xml"
 
-# Remove version-specific XML blocks
-if [[ "$WIN_VERSION" == "10" ]]; then
-    sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' \
-        "$WORK_DIR/autounattend.xml"
-else
-    sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' \
-        "$WORK_DIR/autounattend.xml"
-fi
+# Remove version-specific blocks from XML and setup.ps1
+case "$WIN_VERSION" in
+    10)
+        sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
+        ;;
+    server2022)
+        sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/# BEGIN_CLIENT_ONLY/,/# END_CLIENT_ONLY/d' "$WORK_DIR/setup.ps1"
+        ;;
+    *)
+        sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
+        sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
+        ;;
+esac
 
 echo "Generated autounattend.xml (Windows $WIN_VERSION)"
 
@@ -1107,6 +1144,7 @@ Log "[SETUP] Disabling screen timeout and sleep"
 powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
+# BEGIN_CLIENT_ONLY
 # =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
 # =====================================================================
@@ -1119,6 +1157,13 @@ powercfg.exe /change standby-timeout-ac 0
 Log "[SETUP] Enabling WSL and VirtualMachinePlatform"
 dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux /All /NoRestart
 dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart
+# END_CLIENT_ONLY
+# BEGIN_SERVER_ONLY
+Log "[SETUP] Installing RDSH role for RDP USB redirection"
+Install-WindowsFeature -Name RDS-RD-Server -ErrorAction Continue
+Log "[SETUP] Suppressing Server Manager auto-launch"
+reg.exe add "HKLM\SOFTWARE\Microsoft\ServerManager" /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f
+# END_SERVER_ONLY
 
 Log "[SETUP] PowerShell configuration complete"
 if ($serial -and $serial.IsOpen) { $serial.Close() }
@@ -1346,6 +1391,11 @@ echo "  ssh $USER_NAME@<IP>"
 echo ""
 echo "RDP:"
 echo "  xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution"
+if [[ "$WIN_VERSION" == "server2022" ]]; then
+    echo ""
+    echo "RDP with USB redirection:"
+    echo "  xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution /usb:auto"
+fi
 echo ""
 echo "VM management:"
 echo "  virsh start $VM_NAME"
