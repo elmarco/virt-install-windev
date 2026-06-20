@@ -1,6 +1,6 @@
 # virt-install-windev
 
-Create a fully-unattended Windows 10, 11, or Server 2022 development VM on Linux using libvirt/QEMU/KVM.
+Create a fully-unattended Windows 10, 11, Server 2016, or Server 2022 development VM on Linux using libvirt/QEMU/KVM.
 
 One command, no clicking — the script handles partitioning, driver injection, account creation, and post-install configuration automatically. The Windows version is auto-detected from the ISO filename.
 
@@ -44,6 +44,7 @@ Options:
   --name NAME         VM name (default: windev)
   --iso PATH          Use an existing Windows ISO instead of downloading
   --win10             Use Windows 10 (auto-detected from ISO filename if omitted)
+  --server2016        Use Windows Server 2016 (auto-detected from ISO filename if omitted)
   --server2022        Use Windows Server 2022 (auto-detected from ISO filename if omitted)
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
@@ -81,18 +82,22 @@ The unattended install sets up a dev-friendly Windows environment:
 - **No animations** — snappier UI in a VM
 - **No Recall/AI** — Windows AI data analysis disabled (Win11 24H2+)
 - **No Widgets/Copilot** — disabled
-- **RDP USB redirection** — RemoteFX USB policy enabled (requires Server 2022 with RDSH role for server-side redirection; client editions only support the client side)
+- **RDP USB redirection** — RemoteFX USB policy enabled (requires Server 2016 with RDSH role for server-side redirection; Server 2019+ has a known regression; client editions only support the client side)
 
-## Windows Server 2022
+## Windows Server (2016 / 2022)
 
-Server 2022 support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role, which is only available on Windows Server editions. The script installs RDSH automatically during setup.
+Server support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role, which is only available on Windows Server editions. The script installs RDSH automatically during setup.
+
+**Server 2016 is recommended for USB redirection.** RemoteFX USB redirection is a known regression on Server 2019 and 2022 — the server never opens the URBDRC DVC channel. Server 2016 is the last version where it works reliably.
 
 Windows client editions (10/11) only have the client-side USB redirection driver. Their RDP server never opens the URBDRC DVC channel needed for device forwarding.
 
 Download the evaluation ISO manually (requires free registration):
-https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022
+- Server 2016: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016
+- Server 2022: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022
 
 ```bash
+./virt-install-windev.sh --server2016 --iso ~/Downloads/en_windows_server_2016.iso
 ./virt-install-windev.sh --server2022 --iso ~/Downloads/SERVER_EVAL_x64FRE_en-us.iso
 ```
 
@@ -104,7 +109,7 @@ xfreerdp /v:<IP> /u:Developer /p:password /dynamic-resolution /usb:auto
 Server-specific differences from client editions:
 - **RDSH role** installed automatically (enables RDP USB redirection)
 - **Server Manager** auto-launch suppressed
-- **No WSL** (not supported on Server 2022)
+- **No WSL** (not supported on Server editions)
 - **No bloatware** (Server doesn't ship consumer apps)
 - Image index 2 selected (Standard with Desktop Experience)
 

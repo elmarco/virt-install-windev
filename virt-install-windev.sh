@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# virt-install-windev.sh — Create a fully-unattended Windows 10/11/Server 2022 development VM
+# virt-install-windev.sh — Create a fully-unattended Windows 10/11/Server 2016/2022 development VM
 #
 # This script automates the entire process of creating a Windows 10 or 11 VM using
 # libvirt/QEMU/KVM. It downloads the ISO, generates an "answer file"
@@ -83,13 +83,14 @@ Download a Windows ISO and create a fully-unattended libvirt VM with
 virtio drivers, UEFI, and TPM 2.0.
 
 By default, downloads the Windows 11 Enterprise Evaluation ISO. The Windows
-version is auto-detected from the ISO filename, or can be set with --win10
-or --server2022.
+version is auto-detected from the ISO filename, or can be set with --win10,
+--server2016, or --server2022.
 
 Options:
   --name NAME         VM name (default: windev)
   --iso PATH          Use an existing Windows ISO instead of downloading
   --win10             Use Windows 10 (auto-detected from ISO filename if omitted)
+  --server2016        Use Windows Server 2016 (auto-detected from ISO filename if omitted)
   --server2022        Use Windows Server 2022 (auto-detected from ISO filename if omitted)
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
@@ -113,6 +114,7 @@ while [[ $# -gt 0 ]]; do
         --name)     VM_NAME="$2"; shift 2 ;;
         --iso)      ISO_PATH="$2"; shift 2 ;;
         --win10)    WIN_VERSION=10; shift ;;
+        --server2016) WIN_VERSION=server2016; shift ;;
         --server2022) WIN_VERSION=server2022; shift ;;
         --insider)  INSIDER=1; shift ;;
         --edition)  INSIDER_EDITION="$2"; shift 2 ;;
@@ -203,6 +205,12 @@ elif [[ "$INSIDER" -eq 1 ]]; then
         echo "ISO saved to: $WIN_ISO"
     fi
 else
+    if [[ "$WIN_VERSION" == "server2016" ]]; then
+        echo "Error: Windows Server 2016 evaluation ISOs require manual download." >&2
+        echo "Download from: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2016" >&2
+        echo "Then re-run with: $0 --server2016 --iso /path/to/server2016.iso" >&2
+        exit 1
+    fi
     if [[ "$WIN_VERSION" == "server2022" ]]; then
         echo "Error: Windows Server 2022 evaluation ISOs require manual download." >&2
         echo "Download from: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022" >&2
@@ -240,8 +248,11 @@ if [[ -z "$WIN_VERSION" ]]; then
     iso_name="$(basename "$WIN_ISO")"
     re10='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*10'
     re11='[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*11'
+    resvr2016='[Ss]erver.*2016'
     resvr2022='([Ss]erver.*2022|SERVER_EVAL)'
-    if [[ "$iso_name" =~ $resvr2022 ]]; then
+    if [[ "$iso_name" =~ $resvr2016 ]]; then
+        WIN_VERSION=server2016
+    elif [[ "$iso_name" =~ $resvr2022 ]]; then
         WIN_VERSION=server2022
     elif [[ "$iso_name" =~ $re10 ]]; then
         WIN_VERSION=10
@@ -253,6 +264,7 @@ WIN_VERSION="${WIN_VERSION:-11}"
 
 case "$WIN_VERSION" in
     10)          VIRTIO_DRIVER_DIR="w10";  OS_VARIANT="win10";   IMAGE_INDEX=1 ;;
+    server2016)  VIRTIO_DRIVER_DIR="2k16"; OS_VARIANT="win2k16"; IMAGE_INDEX=2 ;;
     server2022)  VIRTIO_DRIVER_DIR="2k22"; OS_VARIANT="win2k22"; IMAGE_INDEX=2 ;;
     *)           VIRTIO_DRIVER_DIR="w11";  OS_VARIANT="win11";   IMAGE_INDEX=1 ;;
 esac
@@ -477,9 +489,18 @@ cat > "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         <AcceptEula>true</AcceptEula>
       </UserData>
       <!-- END_WIN10_ONLY -->
+      <!-- BEGIN_SERVER2016_ONLY: PRODUCT KEY
+        GVLK for Windows Server 2016 Standard. -->
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <ProductKey>
+          <Key>WC2BQ-8NRM3-FDDYY-2BFGV-KHKQY</Key>
+          <WillShowUI>Never</WillShowUI>
+        </ProductKey>
+      </UserData>
+      <!-- END_SERVER2016_ONLY -->
       <!-- BEGIN_SERVER2022_ONLY: PRODUCT KEY
-        GVLK for Windows Server 2022 Standard — required for unattended
-        edition selection. Selects Standard with Desktop Experience (index 2). -->
+        GVLK for Windows Server 2022 Standard. -->
       <UserData>
         <AcceptEula>true</AcceptEula>
         <ProductKey>
@@ -939,6 +960,12 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
         <!-- END_WIN10_ONLY -->
+        <!-- BEGIN_SERVER2016_ONLY: OpenSSH via Win32-OpenSSH (no built-in capability on Server 2016) -->
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+        </SynchronousCommand>
+        <!-- END_SERVER2016_ONLY -->
         <!-- BEGIN_SERVER2022_ONLY: OpenSSH via built-in capability -->
         <SynchronousCommand wcm:action="add">
           <Order>4</Order>
@@ -1005,21 +1032,16 @@ XMLEOF
 sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g; s/IMAGE_INDEX/${IMAGE_INDEX}/g" \
     "$WORK_DIR/autounattend.xml"
 
-# Remove version-specific XML blocks
-case "$WIN_VERSION" in
-    10)
-        sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        ;;
-    server2022)
-        sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        ;;
-    *)
-        sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        ;;
-esac
+# Remove version-specific XML blocks (keep only the matching version)
+for marker in WIN10 WIN11 SERVER2016 SERVER2022; do
+    case "$WIN_VERSION" in
+        10)          [[ "$marker" == "WIN10" ]] && continue ;;
+        server2016)  [[ "$marker" == "SERVER2016" ]] && continue ;;
+        server2022)  [[ "$marker" == "SERVER2022" ]] && continue ;;
+        *)           [[ "$marker" == "WIN11" ]] && continue ;;
+    esac
+    sed -i "/<!-- BEGIN_${marker}_ONLY/,/<!-- END_${marker}_ONLY -->/d" "$WORK_DIR/autounattend.xml"
+done
 
 echo "Generated autounattend.xml (Windows $WIN_VERSION)"
 
@@ -1167,7 +1189,7 @@ if ($serial -and $serial.IsOpen) { $serial.Close() }
 PS1EOF
 
 # Remove version-specific blocks from setup.ps1
-if [[ "$WIN_VERSION" == "server2022" ]]; then
+if [[ "$WIN_VERSION" == server* ]]; then
     sed -i '/# BEGIN_CLIENT_ONLY/,/# END_CLIENT_ONLY/d' "$WORK_DIR/setup.ps1"
 else
     sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
@@ -1395,7 +1417,7 @@ echo "  ssh $USER_NAME@<IP>"
 echo ""
 echo "RDP:"
 echo "  xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution"
-if [[ "$WIN_VERSION" == "server2022" ]]; then
+if [[ "$WIN_VERSION" == server* ]]; then
     echo ""
     echo "RDP with USB redirection:"
     echo "  xfreerdp /v:<IP> /u:$USER_NAME /p:$USER_PASSWORD /dynamic-resolution /usb:auto"
