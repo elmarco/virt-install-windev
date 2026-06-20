@@ -82,13 +82,11 @@ The unattended install sets up a dev-friendly Windows environment:
 - **No animations** — snappier UI in a VM
 - **No Recall/AI** — Windows AI data analysis disabled (Win11 24H2+)
 - **No Widgets/Copilot** — disabled
-- **RDP USB redirection** — RemoteFX USB policy enabled (requires Server 2016 with RDSH role for server-side redirection; Server 2019+ has a known regression; client editions only support the client side)
+- **RDP USB redirection** — RemoteFX USB and PnP redirection policies enabled (requires Server edition with RDSH role for server-side redirection; client editions only support the client side)
 
 ## Windows Server (2016 / 2022)
 
-Server support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role, which is only available on Windows Server editions. The script installs RDSH automatically during setup.
-
-**Server 2016 is recommended for USB redirection.** RemoteFX USB redirection is a known regression on Server 2019 and 2022 — the server never opens the URBDRC DVC channel. Server 2016 is the last version where it works reliably.
+Server support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role and the PnP redirection policy, both only available on Windows Server editions. The script installs RDSH and configures all required policies automatically.
 
 Windows client editions (10/11) only have the client-side USB redirection driver. Their RDP server never opens the URBDRC DVC channel needed for device forwarding.
 
