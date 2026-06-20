@@ -1163,6 +1163,12 @@ Log "[SETUP] Disabling screen timeout and sleep"
 powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
+# libvirt's NAT network is classified as "Public" by default, which blocks
+# inbound RDP/SSH. Set to Private and ensure the RDP firewall rules are enabled.
+Log "[SETUP] Setting network profile to Private"
+Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+
 # BEGIN_CLIENT_ONLY
 # =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
