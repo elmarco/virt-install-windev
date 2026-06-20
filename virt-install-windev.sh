@@ -1005,22 +1005,19 @@ XMLEOF
 sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g; s/IMAGE_INDEX/${IMAGE_INDEX}/g" \
     "$WORK_DIR/autounattend.xml"
 
-# Remove version-specific blocks from XML and setup.ps1
+# Remove version-specific XML blocks
 case "$WIN_VERSION" in
     10)
         sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
         sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
         ;;
     server2022)
         sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
         sed -i '/<!-- BEGIN_WIN11_ONLY/,/<!-- END_WIN11_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/# BEGIN_CLIENT_ONLY/,/# END_CLIENT_ONLY/d' "$WORK_DIR/setup.ps1"
         ;;
     *)
         sed -i '/<!-- BEGIN_WIN10_ONLY/,/<!-- END_WIN10_ONLY -->/d' "$WORK_DIR/autounattend.xml"
         sed -i '/<!-- BEGIN_SERVER2022_ONLY/,/<!-- END_SERVER2022_ONLY -->/d' "$WORK_DIR/autounattend.xml"
-        sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
         ;;
 esac
 
@@ -1168,6 +1165,13 @@ reg.exe add "HKLM\SOFTWARE\Microsoft\ServerManager" /v DoNotOpenServerManagerAtL
 Log "[SETUP] PowerShell configuration complete"
 if ($serial -and $serial.IsOpen) { $serial.Close() }
 PS1EOF
+
+# Remove version-specific blocks from setup.ps1
+if [[ "$WIN_VERSION" == "server2022" ]]; then
+    sed -i '/# BEGIN_CLIENT_ONLY/,/# END_CLIENT_ONLY/d' "$WORK_DIR/setup.ps1"
+else
+    sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
+fi
 
 echo "Generated setup.ps1"
 
