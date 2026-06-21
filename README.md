@@ -208,7 +208,7 @@ Set-Service sshd -StartupType Automatic
 Start-Service sshd
 ```
 
-**OpenSSH not working (Win10):** The built-in OpenSSH capability on Win10 22H2 ships a broken `sshd.exe`. The script downloads Win32-OpenSSH from GitHub instead, which requires internet during first boot. If it fails, connect via RDP and install manually:
+**OpenSSH not working (Win10 / Server 2016):** The built-in OpenSSH capability on Win10 22H2 ships a broken `sshd.exe`, and Server 2016 lacks it entirely. The script pre-downloads Win32-OpenSSH from GitHub during VM creation and bundles it into the answer-file ISO. If it fails (e.g., no internet on the host), connect via RDP and install manually:
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name

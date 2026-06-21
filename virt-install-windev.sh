@@ -829,20 +829,36 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           manipulation, which is too complex for single reg commands.
           We copy setup.ps1 from the answer-file CD to disk, then run it.
         -->
+        <!-- BEGIN_WIN10_ONLY: Copy OpenSSH ZIP from answer-file CD to disk -->
         <RunSynchronousCommand wcm:action="add">
           <Order>29</Order>
+          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\OpenSSH-Win64.zip copy /y %d:\OpenSSH-Win64.zip C:\Windows\Temp\OpenSSH-Win64.zip</Path>
+        </RunSynchronousCommand>
+        <!-- END_WIN10_ONLY -->
+        <!-- BEGIN_SERVER2016_ONLY: Copy OpenSSH ZIP from answer-file CD to disk -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>29</Order>
+          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\OpenSSH-Win64.zip copy /y %d:\OpenSSH-Win64.zip C:\Windows\Temp\OpenSSH-Win64.zip</Path>
+        </RunSynchronousCommand>
+        <!-- END_SERVER2016_ONLY -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>30</Order>
           <Path>cmd /c "echo [SPECIALIZE] Running setup.ps1 &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>30</Order>
+          <Order>31</Order>
           <Path>cmd /c mkdir C:\Windows\Setup\Scripts 2>nul &amp; for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>31</Order>
+          <Order>32</Order>
           <Path>powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\setup.ps1</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
-          <Order>32</Order>
+          <Order>33</Order>
+          <Path>bcdedit /timeout 0</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>34</Order>
           <Path>cmd /c "echo [SPECIALIZE] Done, rebooting into OOBE &gt; COM1 || exit /b 0"</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
@@ -950,32 +966,66 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>cmd /c for %d in (D E F G H I) do @if exist %d:\virtio-win-guest-tools.exe %d:\virtio-win-guest-tools.exe /install /passive /norestart</CommandLine>
         </SynchronousCommand>
 
+        <!-- BEGIN_SERVER2016_ONLY: Install RDSH for RDP USB redirection.
+             Must run at FirstLogon — Install-WindowsFeature silently fails
+             during specialize because the servicing stack isn't ready. -->
         <SynchronousCommand wcm:action="add">
           <Order>3</Order>
+          <CommandLine>cmd /c "echo [OOBE] Installing RDSH role for USB redirection &gt; COM1 || exit /b 0"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -Command "Install-WindowsFeature -Name RDS-RD-Server -ErrorAction Continue"</CommandLine>
+        </SynchronousCommand>
+        <!-- END_SERVER2016_ONLY -->
+        <!-- BEGIN_SERVER2022_ONLY: Install RDSH for RDP USB redirection. -->
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <CommandLine>cmd /c "echo [OOBE] Installing RDSH role for USB redirection &gt; COM1 || exit /b 0"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -Command "Install-WindowsFeature -Name RDS-RD-Server -ErrorAction Continue"</CommandLine>
+        </SynchronousCommand>
+        <!-- END_SERVER2022_ONLY -->
+
+        <!--
+          Set network profile to Private. libvirt's NAT network defaults
+          to "Public" which blocks inbound RDP/SSH. Must run at FirstLogon
+          (not specialize) because the profile resets after OOBE reboot.
+        -->
+        <SynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <CommandLine>powershell -Command "Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue; Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction SilentlyContinue"</CommandLine>
+        </SynchronousCommand>
+
+        <SynchronousCommand wcm:action="add">
+          <Order>6</Order>
           <CommandLine>cmd /c "echo [OOBE] Installing OpenSSH Server &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
         <!-- BEGIN_WIN11_ONLY: OpenSSH via built-in capability -->
         <SynchronousCommand wcm:action="add">
-          <Order>4</Order>
+          <Order>7</Order>
           <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
         <!-- END_WIN11_ONLY -->
-        <!-- BEGIN_WIN10_ONLY: OpenSSH via Win32-OpenSSH (built-in capability ships broken sshd on Win10 22H2) -->
+        <!-- BEGIN_WIN10_ONLY: OpenSSH installed from bundled ZIP during specialize (setup.ps1).
+             Just start the service here since it was set to Automatic but hasn't booted yet. -->
         <SynchronousCommand wcm:action="add">
-          <Order>4</Order>
-          <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+          <Order>7</Order>
+          <CommandLine>powershell -Command "Start-Service sshd -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
         <!-- END_WIN10_ONLY -->
-        <!-- BEGIN_SERVER2016_ONLY: OpenSSH via Win32-OpenSSH (no built-in capability on Server 2016) -->
+        <!-- BEGIN_SERVER2016_ONLY: OpenSSH installed from bundled ZIP during specialize (setup.ps1). -->
         <SynchronousCommand wcm:action="add">
-          <Order>4</Order>
-          <CommandLine>powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name; $url = 'https://github.com/PowerShell/Win32-OpenSSH/releases/download/' + $tag + '/OpenSSH-Win64.zip'; Invoke-WebRequest -Uri $url -OutFile $env:TEMP\OpenSSH.zip -UseBasicParsing; Expand-Archive $env:TEMP\OpenSSH.zip 'C:\Program Files' -Force; &amp; 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'; &amp; 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A; Set-Service sshd -StartupType Automatic; Start-Service sshd; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
+          <Order>7</Order>
+          <CommandLine>powershell -Command "Start-Service sshd -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
         <!-- END_SERVER2016_ONLY -->
         <!-- BEGIN_SERVER2022_ONLY: OpenSSH via built-in capability -->
         <SynchronousCommand wcm:action="add">
-          <Order>4</Order>
+          <Order>7</Order>
           <CommandLine>powershell -Command "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Continue; Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue; Start-Service sshd -ErrorAction Continue; netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22"</CommandLine>
         </SynchronousCommand>
         <!-- END_SERVER2022_ONLY -->
@@ -987,12 +1037,12 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           access to SYSTEM and Administrators only, or sshd rejects it.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>5</Order>
+          <Order>8</Order>
           <CommandLine>powershell -Command "$f = 'C:\ProgramData\ssh\administrators_authorized_keys'; foreach ($d in 'D','E','F','G','H','I') { $p = \"${d}:\authorized_keys\"; if (Test-Path $p) { Copy-Item $p $f -Force; break } }; if (Test-Path $f) { icacls $f /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' }"</CommandLine>
         </SynchronousCommand>
 
         <SynchronousCommand wcm:action="add">
-          <Order>6</Order>
+          <Order>9</Order>
           <CommandLine>cmd /c "echo [OOBE] Removing bloatware &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -1005,7 +1055,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           profiles also won't get this junk.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>7</Order>
+          <Order>10</Order>
           <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
 
@@ -1016,7 +1066,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>8</Order>
+          <Order>11</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -1026,7 +1076,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>9</Order>
+          <Order>12</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
@@ -1170,12 +1220,6 @@ Log "[SETUP] Disabling screen timeout and sleep"
 powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
-# libvirt's NAT network is classified as "Public" by default, which blocks
-# inbound RDP/SSH. Set to Private and ensure the RDP firewall rules are enabled.
-Log "[SETUP] Setting network profile to Private"
-Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
-Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
-
 # BEGIN_CLIENT_ONLY
 # =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
@@ -1191,11 +1235,26 @@ dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux 
 dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart
 # END_CLIENT_ONLY
 # BEGIN_SERVER_ONLY
-Log "[SETUP] Installing RDSH role for RDP USB redirection"
-Install-WindowsFeature -Name RDS-RD-Server -ErrorAction Continue
 Log "[SETUP] Suppressing Server Manager auto-launch"
 reg.exe add "HKLM\SOFTWARE\Microsoft\ServerManager" /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f
 # END_SERVER_ONLY
+
+# =====================================================================
+# OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)
+# =====================================================================
+# Win11 and Server 2022 use Add-WindowsCapability in FirstLogonCommands.
+# Win10 and Server 2016 need the standalone Win32-OpenSSH binary, which
+# is pre-downloaded on the host and bundled into the answer-file ISO.
+# The ZIP was copied to C:\Windows\Temp during the specialize pass.
+$opensshZip = 'C:\Windows\Temp\OpenSSH-Win64.zip'
+if (Test-Path $opensshZip) {
+    Log "[SETUP] Installing Win32-OpenSSH from bundled ZIP"
+    Expand-Archive $opensshZip 'C:\Program Files' -Force
+    & 'C:\Program Files\OpenSSH-Win64\install-sshd.ps1'
+    & 'C:\Program Files\OpenSSH-Win64\ssh-keygen.exe' -A
+    Set-Service sshd -StartupType Automatic
+    netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22
+}
 
 Log "[SETUP] PowerShell configuration complete"
 if ($serial -and $serial.IsOpen) { $serial.Close() }
@@ -1219,6 +1278,21 @@ if ls ~/.ssh/id_*.pub &>/dev/null; then
     echo "Bundled $(wc -l < "$SSH_KEY_FILE") SSH public key(s)"
 fi
 
+# --- Download Win32-OpenSSH (Win10 / Server 2016 only) ---
+# These versions need a standalone OpenSSH binary — the built-in Windows
+# capability is either broken (Win10 22H2) or absent (Server 2016).
+# We download the ZIP on the host now and bundle it into the answer-file ISO
+# so no internet access is needed during first boot.
+if [[ "$WIN_VERSION" == "10" || "$WIN_VERSION" == "server2016" ]]; then
+    OPENSSH_ZIP="$WORK_DIR/OpenSSH-Win64.zip"
+    echo "Downloading Win32-OpenSSH..."
+    curl -sL -o "$OPENSSH_ZIP" \
+        "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
+    if [[ ! -s "$OPENSSH_ZIP" ]]; then
+        echo "Warning: failed to download Win32-OpenSSH, SSH may not work" >&2
+    fi
+fi
+
 # --- Create answer-file ISO ---
 # Package our autounattend.xml and setup.ps1 into a tiny ISO image
 # that gets attached to the VM as a virtual CD-ROM. Windows scans all
@@ -1229,6 +1303,7 @@ fi
 UNATTEND_ISO="$CACHE_DIR/${VM_NAME}-autounattend.iso"
 ISO_FILES=("$WORK_DIR/autounattend.xml" "$WORK_DIR/setup.ps1")
 [[ -f "$SSH_KEY_FILE" ]] && ISO_FILES+=("$SSH_KEY_FILE")
+[[ -f "$OPENSSH_ZIP" ]] && ISO_FILES+=("$OPENSSH_ZIP")
 genisoimage -quiet -o "$UNATTEND_ISO" -J -r "${ISO_FILES[@]}"
 echo "Created answer-file ISO: $UNATTEND_ISO"
 
@@ -1238,9 +1313,13 @@ echo "Created answer-file ISO: $UNATTEND_ISO"
 # writes data. This is much more efficient than a raw image.
 DISK_PATH="$CACHE_DIR/${VM_NAME}.qcow2"
 if [[ -f "$DISK_PATH" ]]; then
-    echo "Disk image already exists: $DISK_PATH"
-    echo "Remove it first if you want a fresh install."
-    exit 1
+    if [[ "$FORCE" -eq 1 ]]; then
+        rm -f "$DISK_PATH"
+    else
+        echo "Disk image already exists: $DISK_PATH"
+        echo "Remove it first if you want a fresh install."
+        exit 1
+    fi
 fi
 qemu-img create -f qcow2 "$DISK_PATH" "${DISK_GB}G"
 echo "Created disk image: $DISK_PATH (${DISK_GB} GiB)"
