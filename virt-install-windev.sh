@@ -1500,10 +1500,10 @@ if [[ "$NO_WAIT" -eq 0 ]]; then
     # Save final log segment
     cat "$INSTALL_LOG" >> "$INSTALL_LOG.full" 2>/dev/null
 
-    # Eject install media — no longer needed and avoids accidental
+    # Remove CD-ROM drives — no longer needed and avoids accidental
     # re-triggering of the Windows installer on next boot.
-    for dev in $(virsh domblklist "$VM_NAME" 2>/dev/null | awk '/\.iso/{print $1}'); do
-        virsh change-media "$VM_NAME" "$dev" --eject --config 2>/dev/null
+    for dev in $(virsh domblklist "$VM_NAME" 2>/dev/null | awk '/cdrom/{print $1}'); do
+        virsh detach-disk "$VM_NAME" "$dev" --config 2>/dev/null
     done
 fi
 
