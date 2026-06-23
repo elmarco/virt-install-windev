@@ -1407,6 +1407,8 @@ virt-install \
     --sound default \
     --serial file,path="$INSTALL_LOG" \
     --controller type=scsi,model=virtio-scsi \
+    --vsock cid.auto=yes \
+    --features vmcoreinfo=on \
     --noautoconsole
 
 # --- Press any key to boot from CD ---
