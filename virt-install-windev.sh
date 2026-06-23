@@ -1060,6 +1060,17 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
 
+        <!-- BEGIN_WIN11_ONLY: Install WinDbg via winget -->
+        <SynchronousCommand wcm:action="add">
+          <Order>11</Order>
+          <CommandLine>cmd /c "echo [OOBE] Installing WinDbg &gt; COM1 || exit /b 0"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>12</Order>
+          <CommandLine>cmd /c winget install Microsoft.WinDbg --accept-source-agreements --accept-package-agreements --silent</CommandLine>
+        </SynchronousCommand>
+        <!-- END_WIN11_ONLY -->
+
         <!--
           Write the completion marker to serial port BEFORE shutting down.
           The host script watches the serial log for this exact string
@@ -1067,7 +1078,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>11</Order>
+          <Order>13</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -1077,7 +1088,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>12</Order>
+          <Order>14</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
