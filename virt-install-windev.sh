@@ -1069,6 +1069,10 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           <Order>12</Order>
           <CommandLine>cmd /c winget install Microsoft.WinDbg --accept-source-agreements --accept-package-agreements --silent</CommandLine>
         </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>13</Order>
+          <CommandLine>cmd /c winget install Microsoft.Sysinternals.LiveKD --accept-source-agreements --accept-package-agreements --silent</CommandLine>
+        </SynchronousCommand>
         <!-- END_WIN11_ONLY -->
 
         <!--
@@ -1078,7 +1082,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>13</Order>
+          <Order>14</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -1088,7 +1092,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>14</Order>
+          <Order>15</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
