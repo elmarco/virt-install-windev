@@ -66,8 +66,8 @@ VIRTIO_ISO="/usr/share/virtio-win/virtio-win.iso"
 OVMF_CODE="/usr/share/OVMF/OVMF_CODE.secboot.fd"
 OVMF_VARS="/usr/share/OVMF/OVMF_VARS.fd"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-USER_NAME="Developer"
-USER_PASSWORD="password"
+USER_NAME="user"
+USER_PASSWORD="pass"
 COMPUTER_NAME="WinDev"
 NO_WAIT=0
 FORCE=0
@@ -99,8 +99,8 @@ Options:
   --vcpus N           Number of vCPUs (default: 4)
   --ram MB            RAM in MiB (default: 8192)
   --disk GB           Disk size in GiB (default: 64)
-  --user NAME         Local admin username (default: Developer)
-  --password PASS     Local admin password (default: password)
+  --user NAME         Local admin username (default: user)
+  --password PASS     Local admin password (default: pass)
   --no-wait           Don't wait for installation to finish
   --force             Destroy and remove existing VM with the same name
   -h, --help          Show this help
@@ -555,7 +555,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
       Two steps: (1) tell Terminal Services to accept connections,
       (2) open the firewall to allow inbound RDP traffic.
       After install, you can connect from your Linux host with:
-        xfreerdp /v:<vm-ip> /u:Developer /p:password /dynamic-resolution
+        xfreerdp /v:<vm-ip> /u:<USER_NAME> /p:<USER_PASSWORD> /dynamic-resolution
     -->
     <component name="Microsoft-Windows-TerminalServices-LocalSessionManager"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
@@ -1454,7 +1454,7 @@ virt-install \
 # FirstLogonCommand, right before the final "shutdown /s".
 if [[ "$NO_WAIT" -eq 0 ]]; then
     echo "Waiting for installation to complete (this may take 30-60 minutes)..."
-    echo "Connect with: virt-viewer $VM_NAME"
+    echo "Connect with: virt-viewer --attach $VM_NAME"
     echo "Install log:  $INSTALL_LOG"
     echo ""
 
@@ -1502,7 +1502,7 @@ if [[ "$NO_WAIT" -eq 0 ]]; then
 
     # Remove CD-ROM drives — no longer needed and avoids accidental
     # re-triggering of the Windows installer on next boot.
-    for dev in $(virsh domblklist "$VM_NAME" 2>/dev/null | awk '/cdrom/{print $1}'); do
+    for dev in $(virsh domblklist "$VM_NAME" --details 2>/dev/null | awk '$2 == "cdrom" {print $3}'); do
         virsh detach-disk "$VM_NAME" "$dev" --config 2>/dev/null
     done
 fi
