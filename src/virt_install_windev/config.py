@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import enum
+import re
+from dataclasses import dataclass, field
+
+
+class WinVersion(enum.Enum):
+    WIN10 = "10"
+    WIN11 = "11"
+    SERVER2016 = "server2016"
+    SERVER2022 = "server2022"
+
+
+@dataclass(frozen=True)
+class VersionParams:
+    virtio_driver_dir: str
+    os_variant: str
+    image_index: int
+
+
+VERSION_PARAMS: dict[WinVersion, VersionParams] = {
+    WinVersion.WIN10:        VersionParams("w10",  "win10",   1),
+    WinVersion.SERVER2016:   VersionParams("2k16", "win2k16", 2),
+    WinVersion.SERVER2022:   VersionParams("2k22", "win2k22", 2),
+    WinVersion.WIN11:        VersionParams("w11",  "win11",   1),
+}
+
+
+@dataclass
+class Config:
+    name: str = "windev"
+    vcpus: int = 4
+    ram_mb: int = 8192
+    disk_gb: int = 64
+    user_name: str = "user"
+    user_password: str = "pass"
+    computer_name: str = "WinDev"
+    win_version: WinVersion = WinVersion.WIN11
+    iso_path: str | None = None
+    insider: bool = False
+    insider_edition: str = "Release Preview"
+    insider_lang: str = "English (United States)"
+    insider_timeout: int = 300
+    no_wait: bool = False
+    force: bool = False
+    cache_dir: str = ""  # resolved by cli from XDG_CACHE_HOME
+
+
+# Detection patterns mirror virt-install-windev.sh:250-253 (Server first, then 10, then 11).
+_RE_SERVER_2016 = re.compile(r"[Ss]erver.*2016")
+_RE_SERVER_2022 = re.compile(r"([Ss]erver.*2022|SERVER_EVAL)")
+_RE_WIN10 = re.compile(r"[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*10")
+_RE_WIN11 = re.compile(r"[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*11")
+
+
+def detect_win_version(iso_filename: str) -> WinVersion | None:
+    if _RE_SERVER_2016.search(iso_filename):
+        return WinVersion.SERVER2016
+    if _RE_SERVER_2022.search(iso_filename):
+        return WinVersion.SERVER2022
+    if _RE_WIN10.search(iso_filename):
+        return WinVersion.WIN10
+    if _RE_WIN11.search(iso_filename):
+        return WinVersion.WIN11
+    return None

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from virt_install_windev.config import Config, WinVersion
 
-@pytest.fixture(params=["win11", "win10", "server2016", "server2022"])
-def config_version(request) -> str:
-    return request.param
+
+@pytest.fixture(params=[WinVersion.WIN11, WinVersion.WIN10,
+                        WinVersion.SERVER2016, WinVersion.SERVER2022])
+def config(request) -> Config:
+    return Config(win_version=request.param)
