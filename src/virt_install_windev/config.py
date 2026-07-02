@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -44,7 +45,10 @@ class Config:
     insider_timeout: int = 300
     no_wait: bool = False
     force: bool = False
-    cache_dir: str = ""  # resolved by cli from XDG_CACHE_HOME
+    cache_dir: str = field(
+        default_factory=lambda: os.path.join(
+            os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+            "virt-install-windev"))
 
 
 # Detection patterns mirror virt-install-windev.sh:250-253 (Server first, then 10, then 11).
