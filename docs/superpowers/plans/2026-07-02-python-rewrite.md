@@ -13,7 +13,7 @@
 - Python 3.9+ floor. Use `from __future__ import annotations` in every module so dataclass/annotation typing works on 3.9.
 - Core package depends on **stdlib only**. `selenium` is an optional extra (`virt-install-windev[insider]`); import it lazily inside `insider.py` so the core never requires it.
 - Preserve the current CLI flags and defaults exactly: `--name` (default `windev`), `--iso`, `--win10`, `--server2016`, `--server2022`, `--insider`, `--edition` (default `Release Preview`), `--lang` (default `English (United States)`), `--vcpus` (4), `--ram` (8192), `--disk` (64), `--user` (`user`), `--password` (`pass`), `--no-wait`, `--force`, `-h/--help`. Add `--timeout` (default 300) for the Insider sign-in wait (surfaced from the helper).
-- Preserve current USB-redirection behavior: only `fDisablePNPRedir=0` under `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` (the user's review #1 fix). Do not restore the removed `fUsbRedirectionEnable`/`fUsbRedirectionUseDefaultList`.
+- Preserve current USB-redirection behavior: all three reg-adds under `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` in the specialize pass — `fDisablePNPRedir=0` (Order 26), `fUsbRedirectionEnable=1` (Order 27), `fUsbRedirectionUseDefaultList=1` (Order 28). The current bash script has all three (the user restored the latter two after review #1); the golden files reflect this and the Python generator must reproduce them.
 - Keep the OVMF `starting Boot` boot-key timing and the `for %d in (D E F G H I)` drive-letter scans in the generated Windows commands **unchanged**.
 - `COMPUTER_NAME` is a fixed constant `"WinDev"` (no CLI flag today).
 - Generated `autounattend.xml` and `setup.ps1` must be **byte-identical** to the current bash output for each of the four versions when run with default config (enforced by golden files).
@@ -815,7 +815,7 @@ Add `_SPECIALIZE_TEMPLATE` as a triple-quoted string copied **verbatim** from ba
 - Replace `<ComputerName>${COMPUTER_NAME}</ComputerName>` (bash line 547) with `<ComputerName>YOURCOMPUTERNAME</ComputerName>`.
 - In place of the two `BEGIN_WIN10_ONLY`/`BEGIN_SERVER2016_ONLY` "copy OpenSSH ZIP" blocks (bash lines `823–834`, including their marker comments), put the single token `{COPY_OPENSSH_ZIP}`.
 - Drop every other `BEGIN_*_ONLY`/`END_*_ONLY` marker comment that appears in this range (there are none other in specialize besides the OpenSSH ones — verify by grepping the bash range).
-- Keep all `<RunSynchronousCommand>` Order numbers exactly as in bash (including the gap 26 → 29 after the USB block; do **not** renumber).
+- Keep all `<RunSynchronousCommand>` Order numbers exactly as in bash (the USB block uses Orders 26, 27, 28 for the three reg-adds; do **not** renumber).
 
 Update `_render` to also substitute `{COPY_OPENSSH_ZIP}`:
 

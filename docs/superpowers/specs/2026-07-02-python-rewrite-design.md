@@ -25,7 +25,7 @@
    - **#6** The dependency check verifies `python3` and, for `--insider`, that `selenium` is importable — with an actionable error message.
    - **#7** The Insider ISO cache filename is version-specific (`win11-insider.iso` / `win10-insider.iso` / …) so cross-version runs don't reuse the wrong cached ISO.
    - The Insider `--timeout` flag is surfaced in the main CLI (currently hidden inside the helper).
-2. **Preserve current USB-redirection behavior** exactly as it is today (the `fDisablePNPRedir=0`-only block the user settled on in review #1). The rewrite replicates the *current* bash output, not any earlier version.
+2. **Preserve current USB-redirection behavior** exactly as it is today: all three reg-adds under `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` (`fDisablePNPRedir=0`, `fUsbRedirectionEnable=1`, `fUsbRedirectionUseDefaultList=1`). The user restored the latter two after review #1; the rewrite replicates the *current* bash output.
 3. **Python 3.9+** (dataclasses, enums, f-strings, pathlib). Fedora ships 3.12+.
 4. **Distribution:** `pyproject.toml` with a `virt-install-windev` console-script entry point. The old `virt-install-windev.sh` is removed; the README is updated to the new invocation (`virt-install-windev …` or `python -m virt_install_windev`).
 
