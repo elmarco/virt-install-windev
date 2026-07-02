@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virt-install-windev"
+version = "0.1.0"
+description = "Create a fully-unattended Windows dev VM with libvirt/QEMU/KVM"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+insider = ["selenium"]
+dev = ["pytest", "defusedxml"]
+
+[project.scripts]
+virt-install-windev = "virt_install_windev.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
