@@ -19,6 +19,17 @@
 - Generated `autounattend.xml` and `setup.ps1` must be **byte-identical** to the current bash output for each of the four versions when run with default config (enforced by golden files).
 - Every task ends with `pytest` green and a commit. Commit messages: `refactor: …` or `feat: …`, end with the Co-Authored-By line.
 - **XML parsing in tests uses `defusedxml.ElementTree`** (in the `[dev]` extra), never stdlib `xml.etree.ElementTree` — stdlib parsers are vulnerable to XXE/billion-laughs. Production code only *generates* XML strings and never parses, so the core package stays stdlib-only.
+- **Marker-comment normalization in golden tests.** The captured golden files (Task 4) RETAIN the matching version's `<!-- BEGIN_<VER>_ONLY ... -->` / `<!-- END_<VER>_ONLY -->` comments (and `# BEGIN_CLIENT_ONLY`/`# END_CLIENT_ONLY` or `# BEGIN_SERVER_ONLY`/`# END_SERVER_ONLY` in setup.ps1), because the bash marker-stripping loop deletes non-matching blocks but `continue`s past the matching one. The Python generators DROP ALL marker comments (the refactor's whole point). So the golden-equivalence tests (Tasks 7 and 8) MUST normalize both sides by stripping marker comments before comparing — byte-equivalence is on the *substantive* answer-file content, not the cosmetic marker comments (which Windows ignores). Use this helper in `tests/test_autounattend.py` and `tests/test_setup_ps1.py`:
+
+  ```python
+  import re
+  def _strip_markers(text: str) -> str:
+      text = re.sub(r"<!-- BEGIN_[A-Z0-9]+_ONLY.*?-->", "", text, flags=re.DOTALL)
+      text = re.sub(r"<!-- END_[A-Z0-9]+_ONLY -->", "", text)
+      text = re.sub(r"^# (BEGIN|END)_[A-Z]+_ONLY\s*$", "", text, flags=re.MULTILINE)
+      return text
+  ```
+  and compare `_strip_markers(generated) == _strip_markers(golden)`.
 
 ---
 
@@ -587,7 +598,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 This task builds the first third of the generator: the `windowsPE` pass (lines `virt-install-windev.sh:282–514` of the heredoc) including the `<UserData>` product-key block, which varies by version. The `specialize` and `oobeSystem` passes are added in Tasks 6 and 7. Until then, `generate_autounattend` returns only the windowsPE section wrapped in the `<unattend>` root — **not** yet golden-comparable. The full golden comparison lands in Task 7.
 
-**Porting rule (applies to this and the next two tasks):** Copy the XML body **verbatim** from the bash heredoc into a Python triple-quoted string, preserving exact indentation and newlines. Replace the four version-conditional `<UserData>` blocks (bash lines `476–512`) with a single `{USERDATA}` token, supplied by `user_data_for(version)`. Replace `${COMPUTER_NAME}` (bash line 547, injected by the separate heredoc) with a `YOURCOMPUTERNAME` token. Keep `YOURUSER`, `YOURPASSWORD`, `VIRTIO_DRIVER_DIR`, `IMAGE_INDEX` as literal tokens in the template; `_render()` substitutes them. Drop every `<!-- BEGIN_*_ONLY -->` / `<!-- END_*_ONLY -->` marker comment — version selection is now explicit Python.
+**Porting rule (applies to this and the next two tasks):** Copy the XML body **verbatim** from the bash heredoc into a Python triple-quoted string, preserving exact indentation and newlines. Replace the four version-conditional `<UserData>` blocks (bash lines `476–512`) with a single `{USERDATA}` token, supplied by `user_data_for(version)`. Replace `${COMPUTER_NAME}` (bash line 547, injected by the separate heredoc) with a `YOURCOMPUTERNAME` token. Keep `YOURUSER`, `YOURPASSWORD`, `VIRTIO_DRIVER_DIR`, `IMAGE_INDEX` as literal tokens in the template; `_render()` substitutes them. **Drop every `<!-- BEGIN_*_ONLY -->` / `<!-- END_*_ONLY -->` marker comment** — version selection is now explicit Python, and the Python output contains NO marker comments. (The golden files still contain the matching version's markers; the Task 7 golden test normalizes both sides with `_strip_markers` before comparing — see Global Constraints.)
 
 **Interfaces:**
 - Produces:
@@ -858,8 +869,18 @@ Adds the `<settings pass="oobeSystem">` block (bash heredoc lines `859–1091`).
 
 ```python
 import pathlib
+import re
+
+import pytest
 
 GOLDEN = pathlib.Path(__file__).parent / "golden"
+
+
+def _strip_markers(text: str) -> str:
+    text = re.sub(r"<!-- BEGIN_[A-Z0-9]+_ONLY.*?-->", "", text, flags=re.DOTALL)
+    text = re.sub(r"<!-- END_[A-Z0-9]+_ONLY -->", "", text)
+    text = re.sub(r"^# (BEGIN|END)_[A-Z]+_ONLY\s*$", "", text, flags=re.MULTILINE)
+    return text
 
 
 def test_openssh_firstlogon_win11_capability():
@@ -875,10 +896,10 @@ def test_openssh_firstlogon_win10_start_service():
 
 
 def test_rdsh_only_for_servers():
-    assert "RDS-RD-Server" in autounattend.rdh_firstlogon_for(WinVersion.SERVER2016)
-    assert "RDS-RD-Server" in autounattend.rdh_firstlogon_for(WinVersion.SERVER2022)
-    assert autounattend.rdh_firstlogon_for(WinVersion.WIN11) == ""
-    assert autounattend.rdh_firstlogon_for(WinVersion.WIN10) == ""
+    assert "RDS-RD-Server" in autounattend.rdsh_firstlogon_for(WinVersion.SERVER2016)
+    assert "RDS-RD-Server" in autounattend.rdsh_firstlogon_for(WinVersion.SERVER2022)
+    assert autounattend.rdsh_firstlogon_for(WinVersion.WIN11) == ""
+    assert autounattend.rdsh_firstlogon_for(WinVersion.WIN10) == ""
 
 
 def test_winget_windbg_win11_only():
@@ -894,7 +915,9 @@ def test_winget_windbg_win11_only():
 ])
 def test_generate_autounattend_matches_golden(version, filename):
     cfg = Config(win_version=version)
-    assert autounattend.generate_autounattend(cfg) == (GOLDEN / filename).read_text()
+    generated = autounattend.generate_autounattend(cfg)
+    golden = (GOLDEN / filename).read_text()
+    assert _strip_markers(generated) == _strip_markers(golden)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -998,6 +1021,7 @@ Ports the `setup.ps1` heredoc (bash lines `1122–1297`) and its client/server m
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
@@ -1005,6 +1029,13 @@ from virt_install_windev.config import Config, WinVersion
 from virt_install_windev import setup_ps1
 
 GOLDEN = pathlib.Path(__file__).parent / "golden"
+
+
+def _strip_markers(text: str) -> str:
+    text = re.sub(r"<!-- BEGIN_[A-Z0-9]+_ONLY.*?-->", "", text, flags=re.DOTALL)
+    text = re.sub(r"<!-- END_[A-Z0-9]+_ONLY -->", "", text)
+    text = re.sub(r"^# (BEGIN|END)_[A-Z]+_ONLY\s*$", "", text, flags=re.MULTILINE)
+    return text
 
 
 def test_setup_client_has_wsl_no_server_manager():
@@ -1026,7 +1057,9 @@ def test_setup_server_has_server_manager_no_wsl():
     (WinVersion.SERVER2022, "setup_server2022.ps1"),
 ])
 def test_generate_setup_ps1_matches_golden(version, filename):
-    assert setup_ps1.generate_setup_ps1(Config(win_version=version)) == (GOLDEN / filename).read_text()
+    generated = setup_ps1.generate_setup_ps1(Config(win_version=version))
+    golden = (GOLDEN / filename).read_text()
+    assert _strip_markers(generated) == _strip_markers(golden)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
