@@ -71,6 +71,7 @@ USER_PASSWORD="pass"
 COMPUTER_NAME="WinDev"
 NO_WAIT=0
 FORCE=0
+GEN_ONLY=""
 ISO_PATH=""
 OPENSSH_ZIP=""
 INSIDER=0
@@ -127,11 +128,19 @@ while [[ $# -gt 0 ]]; do
         --password) USER_PASSWORD="$2"; shift 2 ;;
         --no-wait)  NO_WAIT=1; shift ;;
         --force)    FORCE=1; shift ;;
+        --generate-only) GEN_ONLY="$2"; shift 2 ;;
         -h|--help)  usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
+# --generate-only: emit answer files and exit, skipping deps/VM/ISO.
+if [[ -n "$GEN_ONLY" ]]; then
+    mkdir -p "$CACHE_DIR"
+    WIN_VERSION="${WIN_VERSION:-11}"
+fi
+
+if [[ -z "$GEN_ONLY" ]]; then
 # --- Dependency checks ---
 # virt-install: creates VMs  |  virsh: manages VMs  |  qemu-img: creates disk images
 # genisoimage: creates ISO images  |  curl: downloads files  |  swtpm: software TPM emulator
@@ -241,6 +250,7 @@ else
         mv "${WIN_ISO}.part" "$WIN_ISO"
         echo "ISO saved to: $WIN_ISO"
     fi
+fi
 fi
 
 # --- Detect Windows version from ISO filename ---
@@ -1301,6 +1311,14 @@ if [[ "$WIN_VERSION" == server* ]]; then
     sed -i '/# BEGIN_CLIENT_ONLY/,/# END_CLIENT_ONLY/d' "$WORK_DIR/setup.ps1"
 else
     sed -i '/# BEGIN_SERVER_ONLY/,/# END_SERVER_ONLY/d' "$WORK_DIR/setup.ps1"
+fi
+
+if [[ -n "$GEN_ONLY" ]]; then
+    mkdir -p "$GEN_ONLY"
+    cp "$WORK_DIR/autounattend.xml" "$GEN_ONLY/autounattend_${WIN_VERSION}.xml"
+    cp "$WORK_DIR/setup.ps1" "$GEN_ONLY/setup_${WIN_VERSION}.ps1"
+    echo "Generated answer files written to $GEN_ONLY for Windows $WIN_VERSION"
+    exit 0
 fi
 
 echo "Generated setup.ps1"
