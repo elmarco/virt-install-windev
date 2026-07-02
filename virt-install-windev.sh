@@ -1101,8 +1101,28 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
 </unattend>
 XMLEOF
 
-# Substitute configurable values into the XML template
-sed -i "s/YOURUSER/${USER_NAME}/g; s/YOURPASSWORD/${USER_PASSWORD}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g; s/IMAGE_INDEX/${IMAGE_INDEX}/g" \
+# Substitute configurable values into the XML template.
+#
+# USER_NAME and USER_PASSWORD come straight from the command line, so they may
+# contain characters that are special to sed's replacement text ('/' breaks the
+# delimiter; '&' means "the whole match"; '\' escapes the next char) or to XML
+# text content ('&', '<', '>'). We escape both layers so the literal value the
+# user typed is what ends up in the file and in Windows:
+#   1. xml_escape:       '&''<''>' -> '&amp;''&lt;''&gt;' (the Windows XML
+#      parser decodes these back to the original character).
+#   2. sed_repl_escape:  escape '\', '&', and the '/' delimiter so the value
+#      is written verbatim instead of erroring or being mangled.
+# VIRTIO_DRIVER_DIR and IMAGE_INDEX are internal constants (w10/w11/2k16/2k22
+# and 1/2) and need no escaping.
+xml_escape() {
+    printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+}
+sed_repl_escape() {
+    printf '%s' "$1" | sed 's/[\\&/]/\\&/g'
+}
+USER_NAME_ESC=$(sed_repl_escape "$(xml_escape "$USER_NAME")")
+USER_PASSWORD_ESC=$(sed_repl_escape "$(xml_escape "$USER_PASSWORD")")
+sed -i "s/YOURUSER/${USER_NAME_ESC}/g; s/YOURPASSWORD/${USER_PASSWORD_ESC}/g; s/VIRTIO_DRIVER_DIR/${VIRTIO_DRIVER_DIR}/g; s/IMAGE_INDEX/${IMAGE_INDEX}/g" \
     "$WORK_DIR/autounattend.xml"
 
 # Remove version-specific XML blocks (keep only the matching version)
