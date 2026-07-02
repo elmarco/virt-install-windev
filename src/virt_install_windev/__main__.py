@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 
 from virt_install_windev.cli import main
