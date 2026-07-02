@@ -1071,7 +1071,7 @@ cat >> "$WORK_DIR/autounattend.xml" <<'XMLEOF'
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>13</Order>
-          <CommandLine>cmd /c winget install Microsoft.Sysinternals.LiveKD --accept-source-agreements --accept-package-agreements --silent</CommandLine>
+          <CommandLine>cmd /c winget install Microsoft.Sysinternals.Suite --accept-source-agreements --accept-package-agreements --silent</CommandLine>
         </SynchronousCommand>
         <!-- END_WIN11_ONLY -->
 
