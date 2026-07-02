@@ -2,7 +2,7 @@
 
 Create a fully-unattended Windows 10, 11, Server 2016, or Server 2022 development VM on Linux using libvirt/QEMU/KVM.
 
-One command, no clicking — the script handles partitioning, driver injection, account creation, and post-install configuration automatically. The Windows version is auto-detected from the ISO filename.
+One command, no clicking — handles partitioning, driver injection, account creation, and post-install configuration automatically. The Windows version is auto-detected from the ISO filename.
 
 ## Quick start
 
@@ -10,19 +10,22 @@ One command, no clicking — the script handles partitioning, driver injection, 
 # Install dependencies (Fedora)
 sudo dnf install virt-install qemu-img genisoimage swtpm virtio-win edk2-ovmf
 
+# Install the tool
+pip install .
+
 # Create a VM (downloads the evaluation ISO automatically)
-./virt-install-windev.sh
+virt-install-windev
 ```
 
 Or with an existing ISO (version auto-detected from filename):
 
 ```bash
-./virt-install-windev.sh --iso ~/Downloads/Win11_24H2_English_x64.iso
-./virt-install-windev.sh --iso ~/Downloads/Win10_22H2_English_x64.iso
-./virt-install-windev.sh --server2022 --iso ~/Downloads/SERVER_EVAL_x64FRE_en-us.iso
+virt-install-windev --iso ~/Downloads/Win11_24H2_English_x64.iso
+virt-install-windev --iso ~/Downloads/Win10_22H2_English_x64.iso
+virt-install-windev --server2022 --iso ~/Downloads/SERVER_EVAL_x64FRE_en-us.iso
 ```
 
-The script waits for installation to complete (~30-60 minutes), showing real-time progress via serial port logging. When it finishes, the VM is shut down and ready to use.
+The tool waits for installation to complete (~30-60 minutes), showing real-time progress via serial port logging. When it finishes, the VM is shut down and ready to use.
 
 ## Prerequisites
 
@@ -38,7 +41,7 @@ The script waits for installation to complete (~30-60 minutes), showing real-tim
 ## Usage
 
 ```
-./virt-install-windev.sh [OPTIONS]
+virt-install-windev [OPTIONS]
 
 Options:
   --name NAME         VM name (default: windev)
@@ -49,14 +52,18 @@ Options:
   --insider           Download Insider Preview ISO via browser automation
   --edition MATCH     Insider edition substring (default: 'Release Preview')
   --lang MATCH        Insider language substring (default: 'English (United States)')
+  --timeout SECS      Insider sign-in timeout (default: 300)
   --vcpus N           Number of vCPUs (default: 4)
   --ram MB            RAM in MiB (default: 8192)
   --disk GB           Disk size in GiB (default: 64)
-  --user NAME         Local admin username (default: Developer)
-  --password PASS     Local admin password (default: password)
+  --user NAME         Local admin username (default: user)
+  --password PASS     Local admin password (default: pass)
   --no-wait           Don't wait for installation to finish
   --force             Destroy and replace an existing VM with the same name
+  --generate-only DIR Emit answer files to DIR and exit
 ```
+
+For `--insider`, install the `selenium` extra: `pip install .[insider]`
 
 ## What gets configured
 
@@ -86,7 +93,7 @@ The unattended install sets up a dev-friendly Windows environment:
 
 ## Windows Server (2016 / 2022)
 
-Server support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role and the PnP redirection policy, both only available on Windows Server editions. The script installs RDSH and configures all required policies automatically.
+Server support enables RDP USB redirection — forwarding host USB devices into the VM over RDP. This requires the RDSH (Remote Desktop Session Host) role and the PnP redirection policy, both only available on Windows Server editions. The tool installs RDSH and configures all required policies automatically.
 
 Windows client editions (10/11) only have the client-side USB redirection driver. Their RDP server never opens the URBDRC DVC channel needed for device forwarding.
 
@@ -95,13 +102,13 @@ Download the evaluation ISO manually (requires free registration):
 - Server 2022: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022
 
 ```bash
-./virt-install-windev.sh --server2016 --iso ~/Downloads/en_windows_server_2016.iso
-./virt-install-windev.sh --server2022 --iso ~/Downloads/SERVER_EVAL_x64FRE_en-us.iso
+virt-install-windev --server2016 --iso ~/Downloads/en_windows_server_2016.iso
+virt-install-windev --server2022 --iso ~/Downloads/SERVER_EVAL_x64FRE_en-us.iso
 ```
 
 Connect with USB redirection:
 ```bash
-xfreerdp /v:<IP> /u:Developer /p:password /dynamic-resolution /usb:auto
+xfreerdp /v:<IP> /u:user /p:pass /dynamic-resolution /usb:auto
 ```
 
 Server-specific differences from client editions:
@@ -123,12 +130,12 @@ virsh domifaddr windev --source agent
 
 **SSH:**
 ```bash
-ssh Developer@<IP>
+ssh user@<IP>
 ```
 
 **RDP:**
 ```bash
-xfreerdp /v:<IP> /u:Developer /p:password /dynamic-resolution
+xfreerdp /v:<IP> /u:user /p:pass /dynamic-resolution
 ```
 
 **SPICE (graphical console):**
@@ -171,7 +178,7 @@ virsh undefine windev --nvram --tpm  # delete completely
 
 ## How it works
 
-The script generates an `autounattend.xml` answer file and packages it into an ISO alongside a PowerShell setup script. This ISO is attached as a virtual CD-ROM. Windows automatically finds and processes the answer file during boot.
+The tool generates an `autounattend.xml` answer file and packages it into an ISO alongside a PowerShell setup script. This ISO is attached as a virtual CD-ROM. Windows automatically finds and processes the answer file during boot.
 
 Installation proceeds through three passes:
 
@@ -179,7 +186,7 @@ Installation proceeds through three passes:
 2. **specialize** — configures registry settings (Defender, UAC, telemetry, updates), runs `setup.ps1` for SSH, WSL, and Explorer defaults
 3. **oobeSystem** — skips all OOBE screens, creates a local admin account, installs VirtIO guest tools, removes bloatware, shuts down
 
-The script monitors installation progress via serial port (COM1) logging and handles intermediate reboots automatically.
+The tool monitors installation progress via serial port (COM1) logging and handles intermediate reboots automatically.
 
 ## Troubleshooting
 
@@ -199,7 +206,7 @@ virt-viewer windev
 
 **Installation stuck at OOBE screens:** Windows 11 24H2+ uses a new "ConX" OOBE engine. The script handles this by setting locale in the oobeSystem pass (automatically skipped for Win10). Insider Preview builds sometimes change behavior — check `virt-viewer` to see what's on screen.
 
-**VM won't boot from CD:** The script sends Enter keys at the right time to trigger "Press any key to boot from CD." If OVMF times out, try running the script again — timing depends on host CPU speed and TPM initialization.
+**VM won't boot from CD:** The tool sends Enter keys at the right time to trigger "Press any key to boot from CD." If OVMF times out, try running again — timing depends on host CPU speed and TPM initialization.
 
 **OpenSSH not working (Win11):** `Add-WindowsCapability` sometimes fails if Windows Update service isn't ready. Connect via RDP and run:
 ```powershell
@@ -208,7 +215,7 @@ Set-Service sshd -StartupType Automatic
 Start-Service sshd
 ```
 
-**OpenSSH not working (Win10 / Server 2016):** The built-in OpenSSH capability on Win10 22H2 ships a broken `sshd.exe`, and Server 2016 lacks it entirely. The script pre-downloads Win32-OpenSSH from GitHub during VM creation and bundles it into the answer-file ISO. If it fails (e.g., no internet on the host), connect via RDP and install manually:
+**OpenSSH not working (Win10 / Server 2016):** The built-in OpenSSH capability on Win10 22H2 ships a broken `sshd.exe`, and Server 2016 lacks it entirely. The tool pre-downloads Win32-OpenSSH from GitHub during VM creation and bundles it into the answer-file ISO. If it fails (e.g., no internet on the host), connect via RDP and install manually:
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $tag = (Invoke-RestMethod https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest).tag_name
