@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -11,6 +10,7 @@ from pathlib import Path
 from virt_install_windev.config import (
     Config, WinVersion, detect_win_version, sanitize_computer_name,
 )
+from virt_install_windev.ui import error, log, print_success, warn
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -73,10 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         win_version = WinVersion.WIN11
 
     if not re.match(r"^(bridge|network)=\w[\w.-]*$", args.network):
-        print(
-            f"Error: invalid --network format: {args.network!r}\n"
-            "  Expected: bridge=NAME or network=NAME (e.g. bridge=virbr0)",
-            file=sys.stderr,
+        error(
+            f"invalid --network format: {args.network!r}",
+            "Expected: bridge=NAME or network=NAME (e.g. bridge=virbr0)",
         )
         return 1
 
@@ -111,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         (out / "autounattend.xml").write_text(xml)
         (out / "setup.ps1").write_text(ps1)
-        print(f"Generated answer files in {out}", file=sys.stderr)
+        log(f"Generated answer files in {out}")
         return 0
 
     from virt_install_windev.deps import check_dependencies, preflight_checks
@@ -122,32 +121,29 @@ def main(argv: list[str] | None = None) -> int:
     missing = check_dependencies(config)
     if missing:
         for dep in missing:
-            print(f"Error: {dep.what}", file=sys.stderr)
-            print(f"  Fix: {dep.hint}", file=sys.stderr)
+            error(dep.what, dep.hint)
         return 1
 
     issues = preflight_checks(config)
-    errors = [i for i in issues if not i.warning]
+    errs = [i for i in issues if not i.warning]
     warnings = [i for i in issues if i.warning]
     for w in warnings:
-        print(f"Warning: {w.what}", file=sys.stderr)
-        print(f"  Fix: {w.hint}", file=sys.stderr)
-    if errors:
-        for e in errors:
-            print(f"Error: {e.what}", file=sys.stderr)
-            print(f"  Fix: {e.hint}", file=sys.stderr)
+        warn(w.what, w.hint)
+    if errs:
+        for e in errs:
+            error(e.what, e.hint)
         return 1
 
     try:
         vm.remove_existing_vm(config)
     except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        error(str(exc))
         return 1
 
     try:
         win_iso = acquire_iso(config)
     except IsoError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        error(str(exc))
         return 1
 
     with tempfile.TemporaryDirectory(prefix="virt-install-windev-") as tmpdir:
@@ -173,10 +169,10 @@ def main(argv: list[str] | None = None) -> int:
                 vm.detach_cdroms(config)
                 vm.create_snapshot(config)
         except KeyboardInterrupt:
-            print("", file=sys.stderr)
+            log()
             return _handle_interrupt(config, disk)
 
-    vm.print_success(config)
+    print_success(config)
     return 0
 
 
@@ -186,16 +182,15 @@ def _handle_interrupt(config: Config, disk: Path) -> int:
     try:
         answer = input(f"\nStop and delete VM '{config.name}' and disk ({disk})? [Y/n] ")
     except (EOFError, KeyboardInterrupt):
-        print("", file=sys.stderr)
+        log()
         answer = "y"
 
     if answer.strip().lower() in ("", "y", "yes"):
         vm.destroy_vm(config)
         vm.undefine_vm(config)
         disk.unlink(missing_ok=True)
-        print("VM and disk removed.", file=sys.stderr)
+        log("VM and disk removed.")
     else:
-        print(f"VM kept. Resume: virsh start {config.name}",
-              file=sys.stderr)
+        log(f"VM kept. Resume: [cyan]virsh start {config.name}[/cyan]")
 
     return 130

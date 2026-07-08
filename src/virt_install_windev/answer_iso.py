@@ -4,7 +4,8 @@ import glob
 from pathlib import Path
 
 from virt_install_windev.config import Config, WinVersion
-from virt_install_windev.util import log, run
+from virt_install_windev.ui import log
+from virt_install_windev.util import run
 
 OPENSSH_URL = "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
 

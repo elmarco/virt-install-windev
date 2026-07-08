@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 
 from virt_install_windev.config import Config, WinVersion
-from virt_install_windev.util import log, run, CommandError
+from virt_install_windev.ui import log
+from virt_install_windev.util import run, CommandError
 
 
 EVAL_URL = "https://go.microsoft.com/fwlink/?linkid=2334167&clcid=0x409&culture=en-us&country=us"

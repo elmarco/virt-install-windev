@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 class CommandError(Exception):
@@ -36,12 +35,6 @@ def xml_escape(s: str) -> str:
     for ch, ent in _XML_MAP.items():
         s = s.replace(ch, ent)
     return s
-
-
-def log(msg: str, prefix: str = "") -> None:
-    """Print a progress line to stderr, mirroring the old [vm]-prefixed tail."""
-    line = f"{prefix}{msg}" if prefix else msg
-    print(line, file=sys.stderr, flush=True)
 
 
 def format_bytes(n: int) -> str:
