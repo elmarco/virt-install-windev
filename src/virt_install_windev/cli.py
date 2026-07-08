@@ -141,9 +141,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         boot_thread.start()
 
-        if not config.no_wait:
-            vm.wait_for_install(config, install_log)
-            vm.detach_cdroms(config)
+        try:
+            if not config.no_wait:
+                vm.wait_for_install(config, install_log)
+                vm.detach_cdroms(config)
+        except KeyboardInterrupt:
+            print("", file=sys.stderr)
+            return _handle_interrupt(config, disk)
 
     vm.print_success(config)
     return 0
+
+
+def _handle_interrupt(config: Config, disk: Path) -> int:
+    from virt_install_windev import vm
+
+    try:
+        answer = input(f"\nStop and delete VM '{config.name}' and disk ({disk})? [Y/n] ")
+    except (EOFError, KeyboardInterrupt):
+        print("", file=sys.stderr)
+        answer = "y"
+
+    if answer.strip().lower() in ("", "y", "yes"):
+        vm.destroy_vm(config)
+        vm.undefine_vm(config)
+        disk.unlink(missing_ok=True)
+        print("VM and disk removed.", file=sys.stderr)
+    else:
+        print(f"VM kept. Resume: virsh start {config.name}",
+              file=sys.stderr)
+
+    return 130

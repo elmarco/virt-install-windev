@@ -27,10 +27,19 @@ def remove_existing_vm(config: Config) -> None:
         )
 
     log(f"Removing existing VM '{name}'...")
-    run(["virsh", "destroy", name], check=False, capture=True)
-    run(["virsh", "undefine", name, "--nvram", "--tpm"], check=False, capture=True)
+    destroy_vm(config)
+    undefine_vm(config)
     disk = Path(config.cache_dir) / f"{name}.qcow2"
     disk.unlink(missing_ok=True)
+
+
+def destroy_vm(config: Config) -> None:
+    run(["virsh", "destroy", config.name], check=False, capture=True)
+
+
+def undefine_vm(config: Config) -> None:
+    run(["virsh", "undefine", config.name, "--nvram", "--tpm"],
+        check=False, capture=True)
 
 
 def create_disk(config: Config) -> Path:
