@@ -45,6 +45,7 @@ class Config:
     insider_timeout: int = 300
     no_wait: bool = False
     force: bool = False
+    debug: bool = False
     cache_dir: str = field(
         default_factory=lambda: os.path.join(
             os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),

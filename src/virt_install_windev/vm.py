@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
-from virt_install_windev.config import Config, VERSION_PARAMS
+from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
 from virt_install_windev.deps import VIRTIO_ISO, OVMF_CODE
 from virt_install_windev.util import log, run, CommandError
 
@@ -114,12 +116,7 @@ def send_boot_keys(config: Config, install_log: Path) -> None:
         time.sleep(1)
 
 
-def wait_for_install(config: Config, install_log: Path) -> None:
-    log("Waiting for installation to complete (this may take 30-60 minutes)...")
-    log(f"Connect with: virt-viewer --attach {config.name}")
-    log(f"Install log:  {install_log}")
-    log("")
-
+def _tail_raw(install_log: Path) -> tuple[subprocess.Popen, subprocess.Popen]:
     tail = subprocess.Popen(
         ["tail", "-F", str(install_log)],
         stdout=subprocess.PIPE,
@@ -132,6 +129,73 @@ def wait_for_install(config: Config, install_log: Path) -> None:
     )
     if tail.stdout:
         tail.stdout.close()
+    return tail, sed
+
+
+def _build_steps(config: Config) -> list[tuple[str, str]]:
+    steps: list[tuple[str, str]] = [
+        ("starting Boot", "Booting from installer"),
+        ("[SPECIALIZE] Configuring system settings", "Configuring system settings"),
+        ("[SPECIALIZE] Disabling Defender services", "Disabling Defender"),
+        ("[SPECIALIZE] Running setup.ps1", "Running setup script"),
+        ("[SETUP] Starting PowerShell configuration", "Applying PowerShell configuration"),
+    ]
+    if config.win_version in (WinVersion.WIN10, WinVersion.WIN11):
+        steps.append(("[SETUP] Enabling WSL", "Enabling WSL"))
+    else:
+        steps.append(("[SETUP] Suppressing Server Manager", "Configuring Server Manager"))
+    if config.win_version in (WinVersion.WIN10, WinVersion.SERVER2016):
+        steps.append(("[SETUP] Installing Win32-OpenSSH", "Installing OpenSSH (bundled)"))
+    steps.append(("[SPECIALIZE] Done, rebooting into OOBE", "Rebooting into OOBE"))
+    steps.append(("[OOBE] First login", "Installing VirtIO guest tools"))
+    if config.win_version in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        steps.append(("[OOBE] Installing RDSH", "Installing Remote Desktop Session Host"))
+    steps.append(("[OOBE] Installing OpenSSH", "Installing OpenSSH Server"))
+    steps.append(("[OOBE] Removing bloatware", "Removing bloatware"))
+    if config.win_version == WinVersion.WIN11:
+        steps.append(("[OOBE] Installing WinDbg", "Installing WinDbg & Sysinternals"))
+    steps.append(("INSTALLATION_COMPLETE", "Installation complete"))
+    return steps
+
+
+def _draw_steps(
+    steps: list[tuple[str, str]],
+    done: set[str],
+    warnings: list[str],
+    prev_lines: int,
+) -> int:
+    if prev_lines > 0:
+        sys.stderr.write(f"\033[{prev_lines}F")
+    lines = 0
+    for w in warnings:
+        sys.stderr.write(f"\033[2K{w}\n")
+        lines += 1
+    for marker, label in steps:
+        tick = "✔" if marker in done else " "
+        sys.stderr.write(f"\033[2K  [{tick}] {label}\n")
+        lines += 1
+    sys.stderr.flush()
+    return lines
+
+
+def wait_for_install(config: Config, install_log: Path) -> None:
+    log("Waiting for installation to complete (this may take 30-60 minutes)...")
+    log(f"Connect with: virt-viewer --attach {config.name}")
+    log(f"Install log:  {install_log}")
+    log("")
+
+    tail = sed = None
+    if config.debug:
+        tail, sed = _tail_raw(install_log)
+
+    use_tty = not config.debug and sys.stderr.isatty()
+    steps = _build_steps(config) if not config.debug else []
+    done: set[str] = set()
+    warnings: list[str] = []
+    drawn_lines = 0
+
+    if use_tty:
+        drawn_lines = _draw_steps(steps, done, warnings, 0)
 
     max_boots = 5
     boot_count = 1
@@ -148,24 +212,54 @@ def wait_for_install(config: Config, install_log: Path) -> None:
             except CommandError:
                 break
 
+            if not config.debug:
+                try:
+                    content = install_log.read_text()
+                except OSError:
+                    content = ""
+                prev_count = len(done)
+                for marker, _ in steps:
+                    if marker not in done and marker in content:
+                        done.add(marker)
+                if use_tty and len(done) != prev_count:
+                    drawn_lines = _draw_steps(steps, done, warnings, drawn_lines)
+
             if state == "shut off":
                 try:
                     content = install_log.read_text()
                 except OSError:
                     content = ""
                 if "INSTALLATION_COMPLETE" in content:
+                    if not config.debug:
+                        for marker, _ in steps:
+                            if marker in content:
+                                done.add(marker)
+                        if use_tty:
+                            _draw_steps(steps, done, warnings, drawn_lines)
                     break
 
                 boot_count += 1
                 if boot_count > max_boots:
-                    log("")
-                    log(f"Warning: VM shut down {max_boots} times without completing.")
-                    log(f"Check the log: {install_log}")
-                    log(f"Start manually: virsh start {config.name}")
+                    if use_tty:
+                        warnings.append(
+                            f"Warning: VM shut down {max_boots} times without completing.")
+                        warnings.append(f"Check the log: {install_log}")
+                        warnings.append(f"Start manually: virsh start {config.name}")
+                        _draw_steps(steps, done, warnings, drawn_lines)
+                    else:
+                        log("")
+                        log(f"Warning: VM shut down {max_boots} times without completing.")
+                        log(f"Check the log: {install_log}")
+                        log(f"Start manually: virsh start {config.name}")
                     break
 
-                log("")
-                log(f"  VM shut down mid-install (boot {boot_count}/{max_boots}), restarting...")
+                msg = f"  VM shut down mid-install (boot {boot_count}/{max_boots}), restarting..."
+                if use_tty:
+                    warnings.append(msg)
+                    drawn_lines = _draw_steps(steps, done, warnings, drawn_lines)
+                else:
+                    log("")
+                    log(msg)
 
                 try:
                     with open(full_log, "a") as f:
@@ -176,16 +270,28 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                 try:
                     run(["virsh", "start", config.name], capture=True)
                 except CommandError as exc:
-                    log(f"Warning: failed to restart VM: {exc}")
-                    log(f"Start manually: virsh start {config.name}")
+                    if use_tty:
+                        warnings.append(f"Warning: failed to restart VM: {exc}")
+                        warnings.append(f"Start manually: virsh start {config.name}")
+                        _draw_steps(steps, done, warnings, drawn_lines)
+                    else:
+                        log(f"Warning: failed to restart VM: {exc}")
+                        log(f"Start manually: virsh start {config.name}")
                     break
+                threading.Thread(
+                    target=send_boot_keys,
+                    args=(config, install_log),
+                    daemon=True,
+                ).start()
                 time.sleep(10)
 
             time.sleep(15)
     finally:
-        tail.terminate()
-        tail.wait()
-        sed.wait()
+        if tail:
+            tail.terminate()
+            tail.wait()
+        if sed:
+            sed.wait()
 
         try:
             with open(full_log, "a") as f:

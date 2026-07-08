@@ -47,6 +47,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Don't wait for installation to finish")
     p.add_argument("--force", action="store_true",
                    help="Destroy and remove existing VM with the same name")
+    p.add_argument("--debug", action="store_true",
+                   help="Show raw VM console output instead of progress summary")
     p.add_argument("--generate-only", metavar="DIR",
                    help="Emit answer files to DIR and exit")
     return p
@@ -81,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         insider_timeout=args.timeout,
         no_wait=args.no_wait,
         force=args.force,
+        debug=args.debug,
     )
 
     from virt_install_windev.autounattend import generate_autounattend
