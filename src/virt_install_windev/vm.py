@@ -8,7 +8,7 @@ from pathlib import Path
 
 from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
 from virt_install_windev.deps import VIRTIO_ISO, OVMF_CODE
-from virt_install_windev.util import log, run, CommandError
+from virt_install_windev.util import format_bytes, log, run, CommandError
 
 
 def remove_existing_vm(config: Config) -> None:
@@ -132,9 +132,30 @@ def _tail_raw(install_log: Path) -> tuple[subprocess.Popen, subprocess.Popen]:
     return tail, sed
 
 
+_DISK_PROGRESS = "__disk_progress__"
+
+
+def _get_disk_writes(vm_name: str) -> int | None:
+    try:
+        result = run(["virsh", "domblkstat", vm_name, "vda"], capture=True)
+    except CommandError:
+        return None
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("wr_bytes"):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return None
+    return None
+
+
 def _build_steps(config: Config) -> list[tuple[str, str]]:
     steps: list[tuple[str, str]] = [
         ("starting Boot", "Booting from installer"),
+        (_DISK_PROGRESS, "Installing Windows"),
         ("[SPECIALIZE] Configuring system settings", "Configuring system settings"),
         ("[SPECIALIZE] Disabling Defender services", "Disabling Defender"),
         ("[SPECIALIZE] Running setup.ps1", "Running setup script"),
@@ -163,6 +184,7 @@ def _draw_steps(
     done: set[str],
     warnings: list[str],
     prev_lines: int,
+    disk_written: int | None = None,
 ) -> int:
     if prev_lines > 0:
         sys.stderr.write(f"\033[{prev_lines}F")
@@ -171,8 +193,16 @@ def _draw_steps(
         sys.stderr.write(f"\033[2K{w}\n")
         lines += 1
     for marker, label in steps:
-        tick = "✔" if marker in done else " "
-        sys.stderr.write(f"\033[2K  [{tick}] {label}\n")
+        if marker in done:
+            tick = "✔"
+            suffix = ""
+        elif marker == _DISK_PROGRESS:
+            tick = "~"
+            suffix = f" ({format_bytes(disk_written)} written)" if disk_written else ""
+        else:
+            tick = " "
+            suffix = ""
+        sys.stderr.write(f"\033[2K  [{tick}] {label}{suffix}\n")
         lines += 1
     sys.stderr.flush()
     return lines
@@ -193,6 +223,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
     done: set[str] = set()
     warnings: list[str] = []
     drawn_lines = 0
+    disk_written: int | None = None
 
     if use_tty:
         drawn_lines = _draw_steps(steps, done, warnings, 0)
@@ -219,10 +250,23 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                     content = ""
                 prev_count = len(done)
                 for marker, _ in steps:
+                    if marker == _DISK_PROGRESS:
+                        continue
                     if marker not in done and marker in content:
                         done.add(marker)
-                if use_tty and len(done) != prev_count:
-                    drawn_lines = _draw_steps(steps, done, warnings, drawn_lines)
+                        if marker.startswith("[SPECIALIZE]") and _DISK_PROGRESS not in done:
+                            done.add(_DISK_PROGRESS)
+
+                disk_active = (
+                    _DISK_PROGRESS not in done
+                    and "starting Boot" in done
+                )
+                if disk_active:
+                    disk_written = _get_disk_writes(config.name)
+
+                if use_tty and (len(done) != prev_count or disk_active):
+                    drawn_lines = _draw_steps(
+                        steps, done, warnings, drawn_lines, disk_written)
 
             if state == "shut off":
                 try:
@@ -232,10 +276,14 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                 if "INSTALLATION_COMPLETE" in content:
                     if not config.debug:
                         for marker, _ in steps:
+                            if marker == _DISK_PROGRESS:
+                                continue
                             if marker in content:
                                 done.add(marker)
+                        done.add(_DISK_PROGRESS)
                         if use_tty:
-                            _draw_steps(steps, done, warnings, drawn_lines)
+                            _draw_steps(steps, done, warnings, drawn_lines,
+                                        disk_written)
                     break
 
                 boot_count += 1
@@ -245,7 +293,8 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                             f"Warning: VM shut down {max_boots} times without completing.")
                         warnings.append(f"Check the log: {install_log}")
                         warnings.append(f"Start manually: virsh start {config.name}")
-                        _draw_steps(steps, done, warnings, drawn_lines)
+                        _draw_steps(steps, done, warnings, drawn_lines,
+                                    disk_written)
                     else:
                         log("")
                         log(f"Warning: VM shut down {max_boots} times without completing.")
@@ -256,7 +305,8 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                 msg = f"  VM shut down mid-install (boot {boot_count}/{max_boots}), restarting..."
                 if use_tty:
                     warnings.append(msg)
-                    drawn_lines = _draw_steps(steps, done, warnings, drawn_lines)
+                    drawn_lines = _draw_steps(steps, done, warnings, drawn_lines,
+                                              disk_written)
                 else:
                     log("")
                     log(msg)
@@ -273,7 +323,8 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                     if use_tty:
                         warnings.append(f"Warning: failed to restart VM: {exc}")
                         warnings.append(f"Start manually: virsh start {config.name}")
-                        _draw_steps(steps, done, warnings, drawn_lines)
+                        _draw_steps(steps, done, warnings, drawn_lines,
+                                    disk_written)
                     else:
                         log(f"Warning: failed to restart VM: {exc}")
                         log(f"Start manually: virsh start {config.name}")

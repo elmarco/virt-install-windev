@@ -42,3 +42,14 @@ def log(msg: str, prefix: str = "") -> None:
     """Print a progress line to stderr, mirroring the old [vm]-prefixed tail."""
     line = f"{prefix}{msg}" if prefix else msg
     print(line, file=sys.stderr, flush=True)
+
+
+def format_bytes(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(value) < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{n} B"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
