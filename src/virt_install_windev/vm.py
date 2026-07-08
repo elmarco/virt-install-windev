@@ -144,20 +144,31 @@ def _tail_raw(install_log: Path) -> tuple[subprocess.Popen, subprocess.Popen]:
 _DISK_PROGRESS = "__disk_progress__"
 
 
-def _get_disk_writes(vm_name: str) -> int | None:
+def _get_disk_target(vm_name: str) -> str | None:
     try:
-        result = run(["virsh", "domblkstat", vm_name, "vda"], capture=True)
+        result = run(
+            ["virsh", "domblklist", vm_name, "--details"], capture=True)
     except CommandError:
         return None
     for line in result.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("wr_bytes"):
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    return int(parts[1])
-                except ValueError:
-                    return None
+        parts = line.split()
+        if len(parts) >= 4 and parts[1] == "disk":
+            return parts[2]
+    return None
+
+
+def _get_disk_writes(vm_name: str, target: str) -> int | None:
+    try:
+        result = run(["virsh", "domblkstat", vm_name, target], capture=True)
+    except CommandError:
+        return None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        try:
+            idx = parts.index("wr_bytes")
+            return int(parts[idx + 1])
+        except (ValueError, IndexError):
+            continue
     return None
 
 
@@ -233,6 +244,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
     warnings: list[str] = []
     drawn_lines = 0
     disk_written: int | None = None
+    disk_target: str | None = None
 
     if use_tty:
         drawn_lines = _draw_steps(steps, done, warnings, 0)
@@ -271,7 +283,10 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                     and "starting Boot" in done
                 )
                 if disk_active:
-                    disk_written = _get_disk_writes(config.name)
+                    if disk_target is None:
+                        disk_target = _get_disk_target(config.name)
+                    if disk_target:
+                        disk_written = _get_disk_writes(config.name, disk_target)
 
                 if use_tty and (len(done) != prev_count or disk_active):
                     drawn_lines = _draw_steps(

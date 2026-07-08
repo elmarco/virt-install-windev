@@ -10,6 +10,7 @@ from virt_install_windev.util import CommandError
 from virt_install_windev.vm import (
     _DISK_PROGRESS,
     _build_steps,
+    _get_disk_target,
     _get_disk_writes,
 )
 
@@ -31,27 +32,47 @@ def test_build_steps_disk_progress_present_all_versions():
 
 
 DOMBLKSTAT_OUTPUT = """\
- rd_req 12345
- rd_bytes 123456789
- wr_req 67890
- wr_bytes 5368709120
- flush_operations 100
+vda rd_req 12345
+vda rd_bytes 123456789
+vda wr_req 67890
+vda wr_bytes 5368709120
+vda flush_operations 100
 """
+
+
+DOMBLKLIST_OUTPUT = """\
+ Type   Device   Target   Source
+ ------------------------------------------------
+ file   disk     sda      /home/user/.cache/virt-install-windev/testvm.qcow2
+ file   cdrom    sdb      /tmp/win11.iso
+"""
+
+
+def test_get_disk_target_parses_output():
+    fake = subprocess.CompletedProcess([], 0, stdout=DOMBLKLIST_OUTPUT, stderr="")
+    with patch("virt_install_windev.vm.run", return_value=fake):
+        assert _get_disk_target("testvm") == "sda"
+
+
+def test_get_disk_target_handles_error():
+    with patch("virt_install_windev.vm.run",
+               side_effect=CommandError(["virsh"], 1, "")):
+        assert _get_disk_target("testvm") is None
 
 
 def test_get_disk_writes_parses_output():
     fake = subprocess.CompletedProcess([], 0, stdout=DOMBLKSTAT_OUTPUT, stderr="")
     with patch("virt_install_windev.vm.run", return_value=fake):
-        assert _get_disk_writes("testvm") == 5368709120
+        assert _get_disk_writes("testvm", "vda") == 5368709120
 
 
 def test_get_disk_writes_handles_error():
     with patch("virt_install_windev.vm.run",
                side_effect=CommandError(["virsh"], 1, "")):
-        assert _get_disk_writes("testvm") is None
+        assert _get_disk_writes("testvm", "vda") is None
 
 
 def test_get_disk_writes_handles_bad_output():
     fake = subprocess.CompletedProcess([], 0, stdout="garbage\n", stderr="")
     with patch("virt_install_windev.vm.run", return_value=fake):
-        assert _get_disk_writes("testvm") is None
+        assert _get_disk_writes("testvm", "vda") is None
