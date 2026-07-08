@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import tempfile
 import threading
 from pathlib import Path
 
-from virt_install_windev.config import Config, WinVersion, detect_win_version
+from virt_install_windev.config import (
+    Config, WinVersion, detect_win_version, sanitize_computer_name,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -43,6 +46,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Local admin username (default: user)")
     p.add_argument("--password", default="pass", dest="user_password",
                    help="Local admin password (default: pass)")
+    p.add_argument("--network", default="bridge=virbr0",
+                   help="Network config: bridge=NAME or network=NAME (default: bridge=virbr0)")
     p.add_argument("--no-wait", action="store_true",
                    help="Don't wait for installation to finish")
     p.add_argument("--force", action="store_true",
@@ -67,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     if win_version is None:
         win_version = WinVersion.WIN11
 
+    if not re.match(r"^(bridge|network)=\w[\w.-]*$", args.network):
+        print(
+            f"Error: invalid --network format: {args.network!r}\n"
+            "  Expected: bridge=NAME or network=NAME (e.g. bridge=virbr0)",
+            file=sys.stderr,
+        )
+        return 1
+
     config = Config(
         name=args.name,
         vcpus=args.vcpus,
@@ -74,13 +87,14 @@ def main(argv: list[str] | None = None) -> int:
         disk_gb=args.disk_gb,
         user_name=args.user_name,
         user_password=args.user_password,
-        computer_name="WinDev",
+        computer_name=sanitize_computer_name(args.name),
         win_version=win_version,
         iso_path=args.iso_path,
         insider=args.insider,
         insider_edition=args.edition,
         insider_lang=args.lang,
         insider_timeout=args.timeout,
+        network=args.network,
         no_wait=args.no_wait,
         force=args.force,
         debug=args.debug,
@@ -100,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Generated answer files in {out}", file=sys.stderr)
         return 0
 
-    from virt_install_windev.deps import check_dependencies
+    from virt_install_windev.deps import check_dependencies, preflight_checks
     from virt_install_windev.iso import acquire_iso, IsoError
     from virt_install_windev.answer_iso import build_answer_iso
     from virt_install_windev import vm
@@ -110,6 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         for dep in missing:
             print(f"Error: {dep.what}", file=sys.stderr)
             print(f"  Fix: {dep.hint}", file=sys.stderr)
+        return 1
+
+    issues = preflight_checks(config)
+    errors = [i for i in issues if not i.warning]
+    warnings = [i for i in issues if i.warning]
+    for w in warnings:
+        print(f"Warning: {w.what}", file=sys.stderr)
+        print(f"  Fix: {w.hint}", file=sys.stderr)
+    if errors:
+        for e in errors:
+            print(f"Error: {e.what}", file=sys.stderr)
+            print(f"  Fix: {e.hint}", file=sys.stderr)
         return 1
 
     try:
@@ -143,8 +169,9 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             if not config.no_wait:
-                vm.wait_for_install(config, install_log)
+                vm.wait_for_install(config, install_log, win_iso)
                 vm.detach_cdroms(config)
+                vm.create_snapshot(config)
         except KeyboardInterrupt:
             print("", file=sys.stderr)
             return _handle_interrupt(config, disk)

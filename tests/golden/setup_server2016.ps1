@@ -104,10 +104,10 @@ Log "[SETUP] Disabling screen timeout and sleep"
 powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
-# BEGIN_SERVER_ONLY
+
+
 Log "[SETUP] Suppressing Server Manager auto-launch"
 reg.exe add "HKLM\SOFTWARE\Microsoft\ServerManager" /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f
-# END_SERVER_ONLY
 
 # =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)

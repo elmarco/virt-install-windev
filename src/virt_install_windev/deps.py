@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import grp
+import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from virt_install_windev.config import Config
+from virt_install_windev.util import run, CommandError
 
 VIRTIO_ISO = Path("/usr/share/virtio-win/virtio-win.iso")
 OVMF_CODE = Path("/usr/share/OVMF/OVMF_CODE.secboot.fd")
@@ -17,6 +20,7 @@ REQUIRED_COMMANDS = ("virt-install", "virsh", "qemu-img", "genisoimage", "curl",
 class MissingDep:
     what: str
     hint: str
+    warning: bool = False
 
 
 def check_dependencies(config: Config) -> list[MissingDep]:
@@ -53,6 +57,65 @@ def check_dependencies(config: Config) -> list[MissingDep]:
             ))
 
     return missing
+
+
+def preflight_checks(config: Config) -> list[MissingDep]:
+    issues: list[MissingDep] = []
+
+    if not Path("/dev/kvm").exists():
+        issues.append(MissingDep(
+            "KVM not available (/dev/kvm not found)",
+            "Enable VT-x/AMD-V in BIOS, or: sudo modprobe kvm_intel (or kvm_amd)",
+        ))
+
+    try:
+        run(["virsh", "uri"], capture=True)
+    except (CommandError, FileNotFoundError):
+        issues.append(MissingDep(
+            "Cannot connect to libvirt",
+            "Is libvirtd running? Try: sudo systemctl start libvirtd",
+        ))
+
+    cache_dir = Path(config.cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    needed_bytes = (config.disk_gb + 7) * 1024 ** 3
+    free = shutil.disk_usage(cache_dir).free
+    if free < needed_bytes:
+        free_gb = free / 1024 ** 3
+        need_gb = config.disk_gb + 7
+        issues.append(MissingDep(
+            f"Not enough disk space: {free_gb:.1f} GiB free, need ~{need_gb} GiB",
+            f"Free up space in {cache_dir}",
+        ))
+
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    avail_kb = int(line.split()[1])
+                    avail_mb = avail_kb // 1024
+                    if avail_mb < config.ram_mb:
+                        issues.append(MissingDep(
+                            f"Not enough RAM: {avail_mb} MiB available, need {config.ram_mb} MiB",
+                            "Close other applications or reduce --ram",
+                        ))
+                    break
+    except OSError:
+        pass
+
+    if os.getuid() != 0:
+        try:
+            libvirt_gid = grp.getgrnam("libvirt").gr_gid
+            if libvirt_gid not in os.getgroups():
+                issues.append(MissingDep(
+                    "Current user is not in the 'libvirt' group",
+                    "sudo usermod -aG libvirt $USER && newgrp libvirt",
+                    warning=True,
+                ))
+        except KeyError:
+            pass
+
+    return issues
 
 
 _CMD_TO_PKG: dict[str, str] = {

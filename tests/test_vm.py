@@ -12,6 +12,7 @@ from virt_install_windev.vm import (
     _build_steps,
     _get_disk_target,
     _get_disk_writes,
+    create_snapshot,
 )
 
 
@@ -76,3 +77,17 @@ def test_get_disk_writes_handles_bad_output():
     fake = subprocess.CompletedProcess([], 0, stdout="garbage\n", stderr="")
     with patch("virt_install_windev.vm.run", return_value=fake):
         assert _get_disk_writes("testvm", "vda") is None
+
+
+def test_create_snapshot_success():
+    config = Config(name="testvm")
+    fake = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with patch("virt_install_windev.vm.run", return_value=fake):
+        assert create_snapshot(config) is True
+
+
+def test_create_snapshot_failure():
+    config = Config(name="testvm")
+    with patch("virt_install_windev.vm.run",
+               side_effect=CommandError(["virsh"], 1, "")):
+        assert create_snapshot(config) is False

@@ -104,7 +104,36 @@ Log "[SETUP] Disabling screen timeout and sleep"
 powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
-# BEGIN_CLIENT_ONLY
+
+# =====================================================================
+# WINDOWS TERMINAL: write default settings for all new users
+# =====================================================================
+Log "[SETUP] Configuring Windows Terminal defaults"
+$wtDir = 'C:\Users\Default\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
+New-Item -ItemType Directory -Force -Path $wtDir | Out-Null
+@'
+{
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "defaultProfile": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+    "theme": "dark",
+    "confirmCloseAllTabs": false,
+    "profiles": {
+        "defaults": {
+            "font": {
+                "face": "Cascadia Mono",
+                "size": 12
+            },
+            "opacity": 95,
+            "useAcrylic": true,
+            "padding": "8",
+            "startingDirectory": "C:\\Users\\%USERNAME%"
+        },
+        "list": []
+    },
+    "actions": []
+}
+'@ | Set-Content (Join-Path $wtDir 'settings.json') -Encoding UTF8
+
 # =====================================================================
 # ENABLE WSL (Windows Subsystem for Linux)
 # =====================================================================
@@ -117,7 +146,6 @@ powercfg.exe /change standby-timeout-ac 0
 Log "[SETUP] Enabling WSL and VirtualMachinePlatform"
 dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux /All /NoRestart
 dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart
-# END_CLIENT_ONLY
 
 # =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)

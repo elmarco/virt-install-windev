@@ -92,7 +92,7 @@ def create_and_start_vm(
         "--cdrom", str(win_iso),
         "--disk", f"{VIRTIO_ISO},device=cdrom,bus=sata",
         "--disk", f"{unattend_iso},device=cdrom,bus=sata",
-        "--network", "bridge=virbr0,model=virtio",
+        "--network", f"{config.network},model=virtio",
         "--graphics", "spice,listen=none",
         "--video", "qxl",
         "--channel", "spicevmc",
@@ -205,6 +205,7 @@ def _draw_steps(
     warnings: list[str],
     prev_lines: int,
     disk_written: int | None = None,
+    disk_total: int | None = None,
 ) -> int:
     if prev_lines > 0:
         sys.stderr.write(f"\033[{prev_lines}F")
@@ -218,7 +219,12 @@ def _draw_steps(
             suffix = ""
         elif marker == _DISK_PROGRESS:
             tick = "~"
-            suffix = f" ({format_bytes(disk_written)} written)" if disk_written else ""
+            if disk_written and disk_total:
+                suffix = f" ({format_bytes(disk_written)} / ~{format_bytes(disk_total)})"
+            elif disk_written:
+                suffix = f" ({format_bytes(disk_written)} written)"
+            else:
+                suffix = ""
         else:
             tick = " "
             suffix = ""
@@ -228,7 +234,8 @@ def _draw_steps(
     return lines
 
 
-def wait_for_install(config: Config, install_log: Path) -> None:
+def wait_for_install(config: Config, install_log: Path,
+                     win_iso: Path | None = None) -> None:
     log("Waiting for installation to complete (this may take 30-60 minutes)...")
     log(f"Connect with: virt-viewer --attach {config.name}")
     log(f"Install log:  {install_log}")
@@ -245,6 +252,12 @@ def wait_for_install(config: Config, install_log: Path) -> None:
     drawn_lines = 0
     disk_written: int | None = None
     disk_target: str | None = None
+    disk_total: int | None = None
+    if win_iso:
+        try:
+            disk_total = int(win_iso.stat().st_size * 3.5)
+        except OSError:
+            pass
 
     if use_tty:
         drawn_lines = _draw_steps(steps, done, warnings, 0)
@@ -290,7 +303,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
 
                 if use_tty and (len(done) != prev_count or disk_active):
                     drawn_lines = _draw_steps(
-                        steps, done, warnings, drawn_lines, disk_written)
+                        steps, done, warnings, drawn_lines, disk_written, disk_total)
 
             if state == "shut off":
                 try:
@@ -307,7 +320,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                         done.add(_DISK_PROGRESS)
                         if use_tty:
                             _draw_steps(steps, done, warnings, drawn_lines,
-                                        disk_written)
+                                        disk_written, disk_total)
                     break
 
                 boot_count += 1
@@ -318,7 +331,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                         warnings.append(f"Check the log: {install_log}")
                         warnings.append(f"Start manually: virsh start {config.name}")
                         _draw_steps(steps, done, warnings, drawn_lines,
-                                    disk_written)
+                                    disk_written, disk_total)
                     else:
                         log("")
                         log(f"Warning: VM shut down {max_boots} times without completing.")
@@ -330,7 +343,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                 if use_tty:
                     warnings.append(msg)
                     drawn_lines = _draw_steps(steps, done, warnings, drawn_lines,
-                                              disk_written)
+                                              disk_written, disk_total)
                 else:
                     log("")
                     log(msg)
@@ -348,7 +361,7 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                         warnings.append(f"Warning: failed to restart VM: {exc}")
                         warnings.append(f"Start manually: virsh start {config.name}")
                         _draw_steps(steps, done, warnings, drawn_lines,
-                                    disk_written)
+                                    disk_written, disk_total)
                     else:
                         log(f"Warning: failed to restart VM: {exc}")
                         log(f"Start manually: virsh start {config.name}")
@@ -373,6 +386,18 @@ def wait_for_install(config: Config, install_log: Path) -> None:
                 f.write(install_log.read_text())
         except OSError:
             pass
+
+
+def create_snapshot(config: Config) -> bool:
+    try:
+        run(["virsh", "snapshot-create-as", config.name,
+             "fresh-install", "Clean install, ready to use"],
+            capture=True)
+        log(f"Created snapshot 'fresh-install' for VM '{config.name}'")
+        return True
+    except CommandError:
+        log("Warning: failed to create snapshot (VM may be running)")
+        return False
 
 
 def detach_cdroms(config: Config) -> None:
@@ -421,5 +446,6 @@ def print_success(config: Config) -> None:
     log("VM management:")
     log(f"  virsh start {config.name}")
     log(f"  virsh shutdown {config.name}")
+    log(f"  virsh snapshot-revert {config.name} fresh-install  # rollback to clean state")
     log(f"  virsh destroy {config.name}        # force stop")
     log(f"  virsh undefine {config.name} --nvram --tpm  # remove completely")

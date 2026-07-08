@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from virt_install_windev.config import (
     Config, WinVersion, VERSION_PARAMS, detect_win_version,
+    sanitize_computer_name,
 )
 
 
@@ -45,3 +48,21 @@ def test_config_defaults():
     assert c.user_password == "pass"
     assert c.win_version is WinVersion.WIN11
     assert c.insider is False
+    assert c.network == "bridge=virbr0"
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("windev", "WINDEV"),
+    ("my-vm", "MY-VM"),
+    ("My VM Name", "MY-VM-NAME"),
+    ("a.b.c", "A-B-C"),
+    ("hello_world!", "HELLO-WORLD"),
+    ("a--b--c", "A-B-C"),
+    ("-leading-", "LEADING"),
+    ("this-is-a-very-long-computer-name", "THIS-IS-A-VERY"),
+    ("", "WINDEV"),
+    ("---", "WINDEV"),
+    ("vm123", "VM123"),
+])
+def test_sanitize_computer_name(name, expected):
+    assert sanitize_computer_name(name) == expected

@@ -45,6 +45,7 @@ class Config:
     insider_timeout: int = 300
     no_wait: bool = False
     force: bool = False
+    network: str = "bridge=virbr0"
     debug: bool = False
     cache_dir: str = field(
         default_factory=lambda: os.path.join(
@@ -57,6 +58,14 @@ _RE_SERVER_2016 = re.compile(r"[Ss]erver.*2016")
 _RE_SERVER_2022 = re.compile(r"([Ss]erver.*2022|SERVER_EVAL)")
 _RE_WIN10 = re.compile(r"[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*10")
 _RE_WIN11 = re.compile(r"[Ww]in(dows)?([-_ .][A-Za-z]+)*[-_ .]*11")
+
+
+def sanitize_computer_name(name: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9-]", "-", name).upper()
+    sanitized = re.sub(r"-{2,}", "-", sanitized).strip("-")
+    sanitized = sanitized[:15]
+    sanitized = sanitized.rstrip("-")
+    return sanitized or "WINDEV"
 
 
 def detect_win_version(iso_filename: str) -> WinVersion | None:

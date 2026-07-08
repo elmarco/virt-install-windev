@@ -3,6 +3,40 @@ from __future__ import annotations
 from virt_install_windev.config import Config, WinVersion
 
 
+def windows_terminal_config_for(version: WinVersion) -> str:
+    if version not in (WinVersion.WIN10, WinVersion.WIN11):
+        return ""
+    return r'''# =====================================================================
+# WINDOWS TERMINAL: write default settings for all new users
+# =====================================================================
+Log "[SETUP] Configuring Windows Terminal defaults"
+$wtDir = 'C:\Users\Default\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
+New-Item -ItemType Directory -Force -Path $wtDir | Out-Null
+@'
+{
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "defaultProfile": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+    "theme": "dark",
+    "confirmCloseAllTabs": false,
+    "profiles": {
+        "defaults": {
+            "font": {
+                "face": "Cascadia Mono",
+                "size": 12
+            },
+            "opacity": 95,
+            "useAcrylic": true,
+            "padding": "8",
+            "startingDirectory": "C:\\Users\\%USERNAME%"
+        },
+        "list": []
+    },
+    "actions": []
+}
+'@ | Set-Content (Join-Path $wtDir 'settings.json') -Encoding UTF8
+'''
+
+
 def wsl_or_server_manager_for(version: WinVersion) -> str:
     if version in (WinVersion.WIN10, WinVersion.WIN11):
         return (
@@ -133,6 +167,7 @@ powercfg.exe /change monitor-timeout-ac 0
 powercfg.exe /change standby-timeout-ac 0
 
 
+{WINDOWS_TERMINAL_CONFIG}
 {WSL_OR_SERVER_MANAGER}
 # =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)
@@ -158,6 +193,10 @@ if ($serial -and $serial.IsOpen) { $serial.Close() }
 
 def generate_setup_ps1(config: Config) -> str:
     text = _TEMPLATE
+    text = text.replace(
+        "{WINDOWS_TERMINAL_CONFIG}",
+        windows_terminal_config_for(config.win_version),
+    )
     text = text.replace(
         "{WSL_OR_SERVER_MANAGER}",
         wsl_or_server_manager_for(config.win_version),

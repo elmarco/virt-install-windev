@@ -37,6 +37,20 @@ def test_all_versions_have_openssh_zip_block():
         assert "OpenSSH-Win64.zip" in ps1
 
 
+def test_client_has_windows_terminal_config():
+    for v in (WinVersion.WIN10, WinVersion.WIN11):
+        ps1 = setup_ps1.generate_setup_ps1(Config(win_version=v))
+        assert "WindowsTerminal" in ps1
+        assert "settings.json" in ps1
+        assert "Cascadia Mono" in ps1
+
+
+def test_server_has_no_windows_terminal_config():
+    for v in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        ps1 = setup_ps1.generate_setup_ps1(Config(win_version=v))
+        assert "WindowsTerminal" not in ps1
+
+
 def test_all_versions_have_dark_mode():
     for v in WinVersion:
         ps1 = setup_ps1.generate_setup_ps1(Config(win_version=v))
