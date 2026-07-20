@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -310,6 +311,14 @@ def wait_for_install(config: Config, install_log: Path,
                         log(f"[yellow]Warning:[/yellow] failed to restart VM: {exc}")
                         log(f"Start manually: virsh start {config.name}")
                     break
+
+                if not any(m for m in done if m.startswith("[SPECIALIZE]")):
+                    threading.Thread(
+                        target=send_boot_keys,
+                        args=(config, install_log),
+                        daemon=True,
+                    ).start()
+
                 time.sleep(10)
 
             time.sleep(15)
