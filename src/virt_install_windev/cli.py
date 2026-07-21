@@ -167,7 +167,10 @@ def main(argv: list[str] | None = None) -> int:
             if not config.no_wait:
                 vm.wait_for_install(config, install_log, win_iso)
                 vm.detach_cdroms(config)
+                vm.detach_serial_console(config)
+                vm.reset_boot_order(config)
                 vm.create_snapshot(config)
+                vm.cleanup_install_logs(install_log)
         except KeyboardInterrupt:
             log()
             return _handle_interrupt(config, disk)

@@ -374,3 +374,25 @@ def detach_cdroms(config: Config) -> None:
             )
 
 
+def detach_serial_console(config: Config) -> None:
+    """Remove the COM1-to-file serial device used only for install progress logging."""
+    run(
+        ["virt-xml", config.name, "--remove-device", "--serial", "1"],
+        check=False,
+        capture=True,
+    )
+
+
+def reset_boot_order(config: Config) -> None:
+    """Drop 'cdrom' from the boot order now that the install media is detached."""
+    run(
+        ["virt-xml", config.name, "--boot", "hd"],
+        check=False,
+        capture=True,
+    )
+
+
+def cleanup_install_logs(install_log: Path) -> None:
+    install_log.unlink(missing_ok=True)
+    install_log.with_suffix(".log.full").unlink(missing_ok=True)
+

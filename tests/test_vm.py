@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 import subprocess
 
@@ -12,7 +13,10 @@ from virt_install_windev.vm import (
     _build_steps,
     _get_disk_target,
     _get_disk_writes,
+    cleanup_install_logs,
     create_snapshot,
+    detach_serial_console,
+    reset_boot_order,
 )
 
 
@@ -91,3 +95,42 @@ def test_create_snapshot_failure():
     with patch("virt_install_windev.vm.run",
                side_effect=CommandError(["virsh"], 1, "")):
         assert create_snapshot(config) is False
+
+
+def test_detach_serial_console_calls_virt_xml():
+    config = Config(name="testvm")
+    fake = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with patch("virt_install_windev.vm.run", return_value=fake) as mock_run:
+        detach_serial_console(config)
+    mock_run.assert_called_once_with(
+        ["virt-xml", "testvm", "--remove-device", "--serial", "1"],
+        check=False, capture=True,
+    )
+
+
+def test_reset_boot_order_calls_virt_xml():
+    config = Config(name="testvm")
+    fake = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    with patch("virt_install_windev.vm.run", return_value=fake) as mock_run:
+        reset_boot_order(config)
+    mock_run.assert_called_once_with(
+        ["virt-xml", "testvm", "--boot", "hd"],
+        check=False, capture=True,
+    )
+
+
+def test_cleanup_install_logs_removes_files(tmp_path: Path):
+    install_log = tmp_path / "testvm-install.log"
+    full_log = install_log.with_suffix(".log.full")
+    install_log.write_text("log")
+    full_log.write_text("full log")
+
+    cleanup_install_logs(install_log)
+
+    assert not install_log.exists()
+    assert not full_log.exists()
+
+
+def test_cleanup_install_logs_missing_files_ok(tmp_path: Path):
+    install_log = tmp_path / "testvm-install.log"
+    cleanup_install_logs(install_log)
