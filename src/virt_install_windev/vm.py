@@ -97,6 +97,8 @@ def create_and_start_vm(
         "--features", "vmcoreinfo=on",
         "--noautoconsole",
     ]
+    if config.iommu:
+        cmd += ["--iommu", f"model={config.iommu}"]
     run(cmd)
 
 

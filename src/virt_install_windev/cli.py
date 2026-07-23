@@ -54,6 +54,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Destroy and remove existing VM with the same name")
     p.add_argument("--debug", action="store_true",
                    help="Show raw VM console output instead of progress summary")
+    p.add_argument("--iommu", nargs="?", const="virtio", default=None,
+                   metavar="MODEL",
+                   help="Add an IOMMU device (default model: virtio; e.g. --iommu=intel)")
     p.add_argument("--generate-only", metavar="DIR",
                    help="Emit answer files to DIR and exit")
     return p
@@ -97,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         no_wait=args.no_wait,
         force=args.force,
         debug=args.debug,
+        iommu=args.iommu,
     )
 
     from virt_install_windev.autounattend import generate_autounattend
