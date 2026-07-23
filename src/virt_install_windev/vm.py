@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -9,6 +10,10 @@ from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
 from virt_install_windev.deps import VIRTIO_ISO, OVMF_CODE
 from virt_install_windev.ui import StepTracker, log, print_vm_info, _DISK_PROGRESS
 from virt_install_windev.util import run, CommandError
+
+
+def _read_log(path: Path) -> str:
+    return path.read_text(errors="replace")
 
 
 def remove_existing_vm(config: Config) -> None:
@@ -79,7 +84,10 @@ def create_and_start_vm(
         "--memory", str(config.ram_mb),
         "--vcpus", str(config.vcpus),
         "--os-variant", params.os_variant,
-        "--boot", "uefi,cdrom,hd",
+        "--boot", ("uefi,cdrom,hd,"
+                   "firmware.feature0.name=secure-boot,"
+                   "firmware.feature0.enabled=no"
+                   if config.kd else "uefi,cdrom,hd"),
         "--tpm", "backend.type=emulator,backend.version=2.0,model=tpm-crb",
         "--disk", f"path={disk_path},format=qcow2,bus=virtio,cache=writeback",
         "--cdrom", str(win_iso),
@@ -105,7 +113,7 @@ def create_and_start_vm(
 def send_boot_keys(config: Config, install_log: Path) -> None:
     for _ in range(30):
         try:
-            if "starting Boot" in install_log.read_text():
+            if "starting Boot" in _read_log(install_log):
                 break
         except OSError:
             pass
@@ -237,7 +245,7 @@ def wait_for_install(config: Config, install_log: Path,
 
             if use_tracker:
                 try:
-                    content = install_log.read_text()
+                    content = _read_log(install_log)
                 except OSError:
                     content = ""
                 for marker, _ in steps:
@@ -262,7 +270,7 @@ def wait_for_install(config: Config, install_log: Path,
 
             if state == "shut off":
                 try:
-                    content = install_log.read_text()
+                    content = _read_log(install_log)
                 except OSError:
                     content = ""
                 if "INSTALLATION_COMPLETE" in content:
@@ -298,7 +306,7 @@ def wait_for_install(config: Config, install_log: Path,
 
                 try:
                     with open(full_log, "a") as f:
-                        f.write(install_log.read_text())
+                        f.write(_read_log(install_log))
                 except OSError:
                     pass
 
@@ -314,13 +322,6 @@ def wait_for_install(config: Config, install_log: Path,
                         log(f"Start manually: virsh start {config.name}")
                     break
 
-                if not any(m for m in done if m.startswith("[SPECIALIZE]")):
-                    threading.Thread(
-                        target=send_boot_keys,
-                        args=(config, install_log),
-                        daemon=True,
-                    ).start()
-
                 time.sleep(10)
 
             time.sleep(15)
@@ -335,7 +336,7 @@ def wait_for_install(config: Config, install_log: Path,
 
         try:
             with open(full_log, "a") as f:
-                f.write(install_log.read_text())
+                f.write(_read_log(install_log))
         except OSError:
             pass
 
@@ -383,6 +384,62 @@ def detach_serial_console(config: Config) -> None:
         check=False,
         capture=True,
     )
+
+
+def _guest_exec(name: str, path: str, args: list[str]) -> None:
+    cmd_json = json.dumps({
+        "execute": "guest-exec",
+        "arguments": {"path": path, "arg": args, "capture-output": True},
+    })
+    run(["virsh", "qemu-agent-command", name, cmd_json], capture=True)
+
+
+def _wait_for_guest_agent(name: str, timeout: int = 300) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            run(["virsh", "qemu-agent-command", name,
+                 '{"execute":"guest-ping"}'], capture=True)
+            return True
+        except CommandError:
+            time.sleep(5)
+    return False
+
+
+def configure_kd(config: Config) -> None:
+    name = config.name
+    kd_sock = Path(config.cache_dir) / f"{name}-kd.sock"
+
+    run(
+        ["virt-xml", name, "--add-device",
+         "--serial", f"unix,path={kd_sock}"],
+        check=False,
+        capture=True,
+    )
+
+    log("Configuring kernel debugging...")
+    run(["virsh", "start", name], capture=True)
+
+    if not _wait_for_guest_agent(name):
+        log("[yellow]Warning:[/yellow] guest agent not responding, skipping KD setup")
+        run(["virsh", "destroy", name], check=False, capture=True)
+        return
+
+    _guest_exec(name, "bcdedit", ["/debug", "on"])
+    _guest_exec(name, "bcdedit",
+                ["/dbgsettings", "serial", "debugport:2", "baudrate:115200"])
+
+    run(["virsh", "shutdown", name], capture=True)
+    for _ in range(60):
+        try:
+            result = run(["virsh", "domstate", name], capture=True)
+            if result.stdout.strip() == "shut off":
+                break
+        except CommandError:
+            break
+        time.sleep(5)
+
+    log(f"Kernel debugging serial: {kd_sock}")
 
 
 def reset_boot_order(config: Config) -> None:

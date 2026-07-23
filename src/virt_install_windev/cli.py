@@ -57,6 +57,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iommu", nargs="?", const="virtio", default=None,
                    metavar="MODEL",
                    help="Add an IOMMU device (default model: virtio; e.g. --iommu=intel)")
+    p.add_argument("--kd", action="store_true",
+                   help="Enable kernel debugging (serial over Unix socket)")
     p.add_argument("--generate-only", metavar="DIR",
                    help="Emit answer files to DIR and exit")
     return p
@@ -101,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         debug=args.debug,
         iommu=args.iommu,
+        kd=args.kd,
     )
 
     from virt_install_windev.autounattend import generate_autounattend
@@ -173,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                 vm.detach_cdroms(config)
                 vm.detach_serial_console(config)
                 vm.reset_boot_order(config)
+                if config.kd:
+                    vm.configure_kd(config)
                 vm.create_snapshot(config)
                 vm.cleanup_install_logs(install_log)
         except KeyboardInterrupt:

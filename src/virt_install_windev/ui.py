@@ -152,6 +152,14 @@ def print_success(config: Config) -> None:
         parts.append(f"  [cyan]{rdp} /usb:auto[/cyan]")
     parts.append("")
 
+    if config.kd:
+        import os
+        kd_sock = os.path.join(config.cache_dir, f"{config.name}-kd.sock")
+        parts.append("[bold]Kernel debugging:[/bold]")
+        parts.append(f"  [cyan]socat {kd_sock} -[/cyan]")
+        parts.append(f"  [dim]or: windbg -k com:pipe,baud=115200,port={kd_sock}[/dim]")
+        parts.append("")
+
     parts.append("[bold]Management:[/bold]")
     parts.append(f"  [cyan]virsh start {config.name}[/cyan]")
     parts.append(f"  [cyan]virsh shutdown {config.name}[/cyan]")
