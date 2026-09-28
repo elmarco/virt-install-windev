@@ -130,7 +130,7 @@ class StepTracker:
 def print_success(config: Config) -> None:
     parts: list[str] = []
     parts.append("[bold]Connect:[/bold]")
-    parts.append(f"  [cyan]virt-viewer {config.name}[/cyan]")
+    parts.append(f"  [cyan]virt-viewer --attach {config.name}[/cyan]")
     parts.append(f"  [dim](or: virsh domdisplay {config.name})[/dim]")
     parts.append("")
 
