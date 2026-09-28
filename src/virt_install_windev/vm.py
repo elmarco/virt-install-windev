@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
-from virt_install_windev.deps import VIRTIO_ISO, OVMF_CODE
 from virt_install_windev.ui import StepTracker, log, print_vm_info, _DISK_PROGRESS
 from virt_install_windev.util import run, CommandError
 
@@ -91,7 +90,7 @@ def create_and_start_vm(
         "--tpm", "backend.type=emulator,backend.version=2.0,model=tpm-crb",
         "--disk", f"path={disk_path},format=qcow2,bus=virtio,cache=writeback",
         "--cdrom", str(win_iso),
-        "--disk", f"{VIRTIO_ISO},device=cdrom,bus=sata",
+        "--disk", f"{config.virtio_iso},device=cdrom,bus=sata",
         "--disk", f"{unattend_iso},device=cdrom,bus=sata",
         "--network", f"{config.network},model=virtio",
         "--graphics", "spice,listen=none",

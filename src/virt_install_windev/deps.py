@@ -9,10 +9,6 @@ from pathlib import Path
 from virt_install_windev.config import Config
 from virt_install_windev.util import run, CommandError
 
-VIRTIO_ISO = Path("/usr/share/virtio-win/virtio-win.iso")
-OVMF_CODE = Path("/usr/share/OVMF/OVMF_CODE.secboot.fd")
-OVMF_VARS = Path("/usr/share/OVMF/OVMF_VARS.fd")
-
 REQUIRED_COMMANDS = ("virt-install", "virsh", "qemu-img", "genisoimage", "curl", "swtpm")
 
 
@@ -35,16 +31,17 @@ def check_dependencies(config: Config) -> list[MissingDep]:
             ),
         ))
 
-    if not VIRTIO_ISO.exists():
+    if not config.virtio_iso.exists():
         missing.append(MissingDep(
-            f"virtio-win ISO not found at {VIRTIO_ISO}",
-            "sudo dnf install virtio-win (https://fedorapeople.org/groups/virt/virtio-win/virtio-win.repo)",
+            f"virtio-win ISO not found at {config.virtio_iso}",
+            "sudo dnf install virtio-win (https://fedorapeople.org/groups/virt/virtio-win/virtio-win.repo)"
+            " or use --virtio-iso to specify the path",
         ))
 
-    if not OVMF_CODE.exists():
+    if not config.ovmf_code.exists():
         missing.append(MissingDep(
-            f"OVMF firmware not found at {OVMF_CODE}",
-            "sudo dnf install edk2-ovmf",
+            f"OVMF firmware not found at {config.ovmf_code}",
+            "sudo dnf install edk2-ovmf or use --ovmf-code to specify the path",
         ))
 
     if config.insider:

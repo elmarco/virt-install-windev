@@ -7,9 +7,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from virt_install_windev.config import (
-    Config, WinVersion, detect_win_version, sanitize_computer_name,
-)
+from virt_install_windev.config import Config, WinVersion, detect_win_version, sanitize_computer_name
 from virt_install_windev.ui import error, log, print_success, warn
 
 
@@ -59,6 +57,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Add an IOMMU device (default model: virtio; e.g. --iommu=intel)")
     p.add_argument("--kd", action="store_true",
                    help="Enable kernel debugging (serial over Unix socket)")
+    p.add_argument("--virtio-iso", metavar="PATH",
+                   help="Path to virtio-win ISO (default: /usr/share/virtio-win/virtio-win.iso)")
+    p.add_argument("--ovmf-code", metavar="PATH",
+                   help="Path to OVMF firmware (default: /usr/share/OVMF/OVMF_CODE.secboot.fd)")
     p.add_argument("--generate-only", metavar="DIR",
                    help="Emit answer files to DIR and exit")
     return p
@@ -84,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    extra: dict = {}
+    if args.virtio_iso:
+        extra["virtio_iso"] = Path(args.virtio_iso)
+    if args.ovmf_code:
+        extra["ovmf_code"] = Path(args.ovmf_code)
+
     config = Config(
         name=args.name,
         vcpus=args.vcpus,
@@ -104,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         debug=args.debug,
         iommu=args.iommu,
         kd=args.kd,
+        **extra,
     )
 
     from virt_install_windev.autounattend import generate_autounattend

@@ -4,6 +4,7 @@ import enum
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 class WinVersion(enum.Enum):
@@ -49,6 +50,8 @@ class Config:
     debug: bool = False
     iommu: str | None = None
     kd: bool = False
+    virtio_iso: Path = Path("/usr/share/virtio-win/virtio-win.iso")
+    ovmf_code: Path = Path("/usr/share/OVMF/OVMF_CODE.secboot.fd")
     cache_dir: str = field(
         default_factory=lambda: os.path.join(
             os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
