@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
 from virt_install_windev.util import xml_escape
 
@@ -866,18 +868,22 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
 def _render(template: str, config: Config) -> str:
     version = config.win_version
     params = VERSION_PARAMS[version]
-    text = template
-    text = text.replace("{USERDATA}", user_data_for(version))
-    text = text.replace("{COPY_OPENSSH_ZIP}", copy_openssh_zip_for(version))
-    text = text.replace("{RDSH_FIRSTLOGON}", rdsh_firstlogon_for(version))
-    text = text.replace("{OPENSSH_FIRSTLOGON}", openssh_firstlogon_for(version))
-    text = text.replace("{WINGET_WINDBG}", winget_windbg_for(version))
-    text = text.replace("VIRTIO_DRIVER_DIR", params.virtio_driver_dir)
-    text = text.replace("{IMAGE_INDEX}", str(params.image_index))
-    text = text.replace("YOURCOMPUTERNAME", xml_escape(config.computer_name))
-    text = text.replace("YOURPASSWORD", xml_escape(config.user_password))
-    text = text.replace("YOURUSER", xml_escape(config.user_name))
-    return text
+    replacements = {
+        "{USERDATA}": user_data_for(version),
+        "{COPY_OPENSSH_ZIP}": copy_openssh_zip_for(version),
+        "{RDSH_FIRSTLOGON}": rdsh_firstlogon_for(version),
+        "{OPENSSH_FIRSTLOGON}": openssh_firstlogon_for(version),
+        "{WINGET_WINDBG}": winget_windbg_for(version),
+        "VIRTIO_DRIVER_DIR": params.virtio_driver_dir,
+        "{IMAGE_INDEX}": str(params.image_index),
+        "YOURCOMPUTERNAME": xml_escape(config.computer_name),
+        "YOURPASSWORD": xml_escape(config.user_password),
+        "YOURUSER": xml_escape(config.user_name),
+    }
+    pattern = re.compile(
+        "|".join(re.escape(k) for k in sorted(replacements, key=len, reverse=True))
+    )
+    return pattern.sub(lambda m: replacements[m.group()], template)
 
 
 def generate_autounattend(config: Config) -> str:

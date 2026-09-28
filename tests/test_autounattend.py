@@ -74,6 +74,14 @@ def test_generate_escapes_user_password():
     assert "a&b" not in xml and "p<x" not in xml
 
 
+def test_generate_password_containing_token_not_resubstituted():
+    cfg = Config(win_version=WinVersion.WIN11, user_name="alice", user_password="YOURUSER")
+    xml = autounattend.generate_autounattend(cfg)
+    assert "<Value>YOURUSER</Value>" in xml
+    assert "<Name>alice</Name>" in xml
+    assert "<Username>alice</Username>" in xml
+
+
 def test_generate_win11_has_drivers_and_usb_keys():
     xml = autounattend.generate_autounattend(Config(win_version=WinVersion.WIN11))
     assert "E:\\NetKVM\\w11\\amd64" in xml
