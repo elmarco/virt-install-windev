@@ -34,6 +34,8 @@ def error(what: str, hint: str | None = None) -> None:
 
 
 def print_vm_info(config: Config) -> None:
+    from virt_install_windev.config import VERSION_PARAMS
+
     tbl = Table(show_header=False, box=None, padding=(0, 1))
     tbl.add_column(style="bold")
     tbl.add_column()
@@ -42,6 +44,15 @@ def print_vm_info(config: Config) -> None:
     tbl.add_row("RAM", f"{config.ram_mb} MiB")
     tbl.add_row("Disk", f"{config.disk_gb} GiB")
     tbl.add_row("User", config.user_name)
+
+    virtio_iso = config.virtio_iso.resolve()
+    params = VERSION_PARAMS[config.win_version]
+    drivers = ["NetKVM", "viostor", "vioscsi", "qxldod",
+               "Balloon", "vioserial", "viorng"]
+    tbl.add_row("VirtIO ISO", str(virtio_iso))
+    tbl.add_row("VirtIO drivers",
+                f"{', '.join(drivers)} ({params.virtio_driver_dir}/amd64)")
+
     console.print()
     console.print(Panel(tbl, title=f"Creating VM [bold]'{config.name}'[/bold]",
                         border_style="blue", expand=False))
