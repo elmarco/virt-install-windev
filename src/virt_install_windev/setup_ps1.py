@@ -37,6 +37,18 @@ New-Item -ItemType Directory -Force -Path $wtDir | Out-Null
 '''
 
 
+def san_policy_for(version: WinVersion) -> str:
+    if version not in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        return ""
+    return (
+        "# =====================================================================\n"
+        "# SAN POLICY: auto-online new disks (Server defaults to OfflineShared)\n"
+        "# =====================================================================\n"
+        'Log "[SETUP] Setting SAN policy to OnlineAll"\n'
+        "Set-StorageSetting -NewDiskPolicy OnlineAll\n\n"
+    )
+
+
 def wsl_or_server_manager_for(version: WinVersion) -> str:
     if version in (WinVersion.WIN10, WinVersion.WIN11):
         return (
@@ -169,7 +181,7 @@ powercfg.exe /change standby-timeout-ac 0
 
 {WINDOWS_TERMINAL_CONFIG}
 {WSL_OR_SERVER_MANAGER}
-# =====================================================================
+{SAN_POLICY}# =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)
 # =====================================================================
 # Win11 and Server 2022 use Add-WindowsCapability in FirstLogonCommands.
@@ -200,5 +212,9 @@ def generate_setup_ps1(config: Config) -> str:
     text = text.replace(
         "{WSL_OR_SERVER_MANAGER}",
         wsl_or_server_manager_for(config.win_version),
+    )
+    text = text.replace(
+        "{SAN_POLICY}",
+        san_policy_for(config.win_version),
     )
     return text

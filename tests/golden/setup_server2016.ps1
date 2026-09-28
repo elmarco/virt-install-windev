@@ -110,6 +110,12 @@ Log "[SETUP] Suppressing Server Manager auto-launch"
 reg.exe add "HKLM\SOFTWARE\Microsoft\ServerManager" /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f
 
 # =====================================================================
+# SAN POLICY: auto-online new disks (Server defaults to OfflineShared)
+# =====================================================================
+Log "[SETUP] Setting SAN policy to OnlineAll"
+Set-StorageSetting -NewDiskPolicy OnlineAll
+
+# =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)
 # =====================================================================
 # Win11 and Server 2022 use Add-WindowsCapability in FirstLogonCommands.
