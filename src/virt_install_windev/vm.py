@@ -192,7 +192,7 @@ def _build_steps(config: Config) -> list[tuple[str, str]]:
         steps.append(("[OOBE] Installing RDSH", "Installing Remote Desktop Session Host"))
     steps.append(("[OOBE] Installing OpenSSH", "Installing OpenSSH Server"))
     steps.append(("[OOBE] Removing bloatware", "Removing bloatware"))
-    steps.append(("[OOBE] Installing WinDbg", "Installing WinDbg & Sysinternals"))
+    steps.append(("[OOBE] Installing WinDbg", "Installing WinDbg, Sysinternals & WinFSP"))
     steps.append(("INSTALLATION_COMPLETE", "Installation complete"))
     return steps
 

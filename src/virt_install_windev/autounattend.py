@@ -144,6 +144,12 @@ def winget_windbg_for(version: WinVersion) -> str:
         " Microsoft.Sysinternals.Suite --accept-source-agreements"
         " --accept-package-agreements --silent</CommandLine>\n"
         "        </SynchronousCommand>\n"
+        "        <SynchronousCommand wcm:action=\"add\">\n"
+        "          <Order>15</Order>\n"
+        "          <CommandLine>cmd /c winget install"
+        " WinFsp.WinFsp --accept-source-agreements"
+        " --accept-package-agreements --silent</CommandLine>\n"
+        "        </SynchronousCommand>\n"
         "        \n"
     )
 
@@ -845,7 +851,7 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>15</Order>
+          <Order>16</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -855,7 +861,7 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>16</Order>
+          <Order>17</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>

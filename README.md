@@ -89,6 +89,9 @@ The unattended install sets up a dev-friendly Windows environment:
 - **No animations** — snappier UI in a VM
 - **No Recall/AI** — Windows AI data analysis disabled (Win11 24H2+)
 - **No Widgets/Copilot** — disabled
+- **WinDbg** — Windows debugger installed via winget
+- **Sysinternals** — full Sysinternals Suite installed via winget
+- **WinFSP** — Windows File System Proxy installed via winget (user-mode file systems)
 - **RDP USB redirection** — RemoteFX USB and PnP redirection policies enabled (requires Server edition with RDSH role for server-side redirection; client editions only support the client side)
 
 ## Windows Server (2016 / 2022)
