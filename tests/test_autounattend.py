@@ -56,9 +56,9 @@ def test_openssh_firstlogon_variants():
     assert "Start-Service sshd" in win10 and "Add-WindowsCapability" not in win10
 
 
-def test_winget_windbg_win11_only():
-    assert "Microsoft.WinDbg" in autounattend.winget_windbg_for(WinVersion.WIN11)
-    assert autounattend.winget_windbg_for(WinVersion.WIN10) == ""
+def test_winget_windbg_all_versions():
+    for v in WinVersion:
+        assert "Microsoft.WinDbg" in autounattend.winget_windbg_for(v)
 
 
 def test_generate_is_well_formed_xml():

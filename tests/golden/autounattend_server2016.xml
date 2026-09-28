@@ -191,8 +191,7 @@
         </OSImage>
       </ImageInstall>
 
-      <!-- BEGIN_SERVER2016_ONLY: PRODUCT KEY
-        GVLK for Windows Server 2016 Standard. -->
+      
       <UserData>
         <AcceptEula>true</AcceptEula>
         <ProductKey>
@@ -200,7 +199,7 @@
           <WillShowUI>Never</WillShowUI>
         </ProductKey>
       </UserData>
-      <!-- END_SERVER2016_ONLY -->
+      
     </component>
   </settings>
 
@@ -514,12 +513,12 @@
           manipulation, which is too complex for single reg commands.
           We copy setup.ps1 from the answer-file CD to disk, then run it.
         -->
-        <!-- BEGIN_SERVER2016_ONLY: Copy OpenSSH ZIP from answer-file CD to disk -->
+        
         <RunSynchronousCommand wcm:action="add">
           <Order>29</Order>
           <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\OpenSSH-Win64.zip copy /y %d:\OpenSSH-Win64.zip C:\Windows\Temp\OpenSSH-Win64.zip</Path>
         </RunSynchronousCommand>
-        <!-- END_SERVER2016_ONLY -->
+        
         <RunSynchronousCommand wcm:action="add">
           <Order>30</Order>
           <Path>cmd /c "echo [SPECIALIZE] Running setup.ps1 &gt; COM1 || exit /b 0"</Path>
@@ -645,9 +644,7 @@
           <CommandLine>cmd /c for %d in (D E F G H I) do @if exist %d:\virtio-win-guest-tools.exe %d:\virtio-win-guest-tools.exe /install /passive /norestart</CommandLine>
         </SynchronousCommand>
 
-        <!-- BEGIN_SERVER2016_ONLY: Install RDSH for RDP USB redirection.
-             Must run at FirstLogon — Install-WindowsFeature silently fails
-             during specialize because the servicing stack isn't ready. -->
+        
         <SynchronousCommand wcm:action="add">
           <Order>3</Order>
           <CommandLine>cmd /c "echo [OOBE] Installing RDSH role for USB redirection &gt; COM1 || exit /b 0"</CommandLine>
@@ -656,7 +653,7 @@
           <Order>4</Order>
           <CommandLine>powershell -Command "Install-WindowsFeature -Name RDS-RD-Server -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
-        <!-- END_SERVER2016_ONLY -->
+        
 
         <!--
           Set network profile to Private. libvirt's NAT network defaults
@@ -673,12 +670,12 @@
           <CommandLine>cmd /c "echo [OOBE] Installing OpenSSH Server &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
-        <!-- BEGIN_SERVER2016_ONLY: OpenSSH installed from bundled ZIP during specialize (setup.ps1). -->
+        
         <SynchronousCommand wcm:action="add">
           <Order>7</Order>
           <CommandLine>powershell -Command "Start-Service sshd -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
-        <!-- END_SERVER2016_ONLY -->
+        
 
         <!--
           Deploy SSH authorized keys for passwordless login.
@@ -709,6 +706,24 @@
           <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
         </SynchronousCommand>
 
+        
+        <SynchronousCommand wcm:action="add">
+          <Order>11</Order>
+          <CommandLine>cmd /c "echo [OOBE] Installing WinDbg &gt; COM1 || exit /b 0"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>12</Order>
+          <CommandLine>powershell -Command "if (Get-Command winget -ErrorAction SilentlyContinue) { exit }; $ProgressPreference='SilentlyContinue'; $t=$env:TEMP; try { Invoke-WebRequest 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile $t\vcl.appx -UseBasicParsing; Add-AppxPackage $t\vcl.appx } catch {}; try { Invoke-WebRequest 'https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6' -OutFile $t\uix.zip -UseBasicParsing; Expand-Archive $t\uix.zip $t\uix -Force; Add-AppxPackage (Get-ChildItem $t\uix\tools\AppX\x64\Release\*.appx).FullName } catch {}; try { Invoke-WebRequest 'https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle' -OutFile $t\wg.msix -UseBasicParsing; Add-AppxPackage $t\wg.msix } catch {}"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>13</Order>
+          <CommandLine>cmd /c winget install Microsoft.WinDbg --accept-source-agreements --accept-package-agreements --silent</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>14</Order>
+          <CommandLine>cmd /c winget install Microsoft.Sysinternals.Suite --accept-source-agreements --accept-package-agreements --silent</CommandLine>
+        </SynchronousCommand>
+        
 
         <!--
           Write the completion marker to serial port BEFORE shutting down.
@@ -717,7 +732,7 @@
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>14</Order>
+          <Order>15</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -727,7 +742,7 @@
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>15</Order>
+          <Order>16</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>

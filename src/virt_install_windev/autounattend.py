@@ -100,29 +100,50 @@ def openssh_firstlogon_for(version: WinVersion) -> str:
 
 
 def winget_windbg_for(version: WinVersion) -> str:
-    if version == WinVersion.WIN11:
-        return (
-            "        \n"
-            "        <SynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>11</Order>\n"
-            "          <CommandLine>cmd /c \"echo [OOBE] Installing WinDbg"
-            " &gt; COM1 || exit /b 0\"</CommandLine>\n"
-            "        </SynchronousCommand>\n"
-            "        <SynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>12</Order>\n"
-            "          <CommandLine>cmd /c winget install Microsoft.WinDbg"
-            " --accept-source-agreements --accept-package-agreements"
-            " --silent</CommandLine>\n"
-            "        </SynchronousCommand>\n"
-            "        <SynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>13</Order>\n"
-            "          <CommandLine>cmd /c winget install"
-            " Microsoft.Sysinternals.Suite --accept-source-agreements"
-            " --accept-package-agreements --silent</CommandLine>\n"
-            "        </SynchronousCommand>\n"
-            "        \n"
-        )
-    return ""
+    return (
+        "        \n"
+        "        <SynchronousCommand wcm:action=\"add\">\n"
+        "          <Order>11</Order>\n"
+        "          <CommandLine>cmd /c \"echo [OOBE] Installing WinDbg"
+        " &gt; COM1 || exit /b 0\"</CommandLine>\n"
+        "        </SynchronousCommand>\n"
+        "        <SynchronousCommand wcm:action=\"add\">\n"
+        "          <Order>12</Order>\n"
+        "          <CommandLine>powershell -Command \""
+        "if (Get-Command winget -ErrorAction SilentlyContinue) { exit };"
+        " $ProgressPreference='SilentlyContinue'; $t=$env:TEMP;"
+        " try { Invoke-WebRequest"
+        " 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx'"
+        " -OutFile $t\\vcl.appx -UseBasicParsing;"
+        " Add-AppxPackage $t\\vcl.appx } catch {};"
+        " try { Invoke-WebRequest"
+        " 'https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6'"
+        " -OutFile $t\\uix.zip -UseBasicParsing;"
+        " Expand-Archive $t\\uix.zip $t\\uix -Force;"
+        " Add-AppxPackage"
+        " (Get-ChildItem $t\\uix\\tools\\AppX\\x64\\Release\\*.appx)"
+        ".FullName } catch {};"
+        " try { Invoke-WebRequest"
+        " 'https://github.com/microsoft/winget-cli/releases/latest"
+        "/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'"
+        " -OutFile $t\\wg.msix -UseBasicParsing;"
+        " Add-AppxPackage $t\\wg.msix } catch {}"
+        "\"</CommandLine>\n"
+        "        </SynchronousCommand>\n"
+        "        <SynchronousCommand wcm:action=\"add\">\n"
+        "          <Order>13</Order>\n"
+        "          <CommandLine>cmd /c winget install Microsoft.WinDbg"
+        " --accept-source-agreements --accept-package-agreements"
+        " --silent</CommandLine>\n"
+        "        </SynchronousCommand>\n"
+        "        <SynchronousCommand wcm:action=\"add\">\n"
+        "          <Order>14</Order>\n"
+        "          <CommandLine>cmd /c winget install"
+        " Microsoft.Sysinternals.Suite --accept-source-agreements"
+        " --accept-package-agreements --silent</CommandLine>\n"
+        "        </SynchronousCommand>\n"
+        "        \n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +843,7 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
           that happen during installation (e.g., after DISM features).
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>14</Order>
+          <Order>15</Order>
           <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
         </SynchronousCommand>
 
@@ -832,7 +853,7 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
           30-second delay gives the previous commands time to finish.
         -->
         <SynchronousCommand wcm:action="add">
-          <Order>15</Order>
+          <Order>16</Order>
           <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
