@@ -38,7 +38,7 @@ def check_dependencies(config: Config) -> list[MissingDep]:
     if not VIRTIO_ISO.exists():
         missing.append(MissingDep(
             f"virtio-win ISO not found at {VIRTIO_ISO}",
-            "sudo dnf install virtio-win",
+            "sudo dnf install virtio-win (https://fedorapeople.org/groups/virt/virtio-win/virtio-win.repo)",
         ))
 
     if not OVMF_CODE.exists():
