@@ -63,6 +63,9 @@ def build_answer_iso(
         if openssh:
             files.append(str(openssh))
 
+    for script_path in config.post_install_scripts:
+        files.append(str(script_path))
+
     cache = Path(config.cache_dir)
     cache.mkdir(parents=True, exist_ok=True)
     iso_path = cache / f"{config.name}-autounattend.iso"

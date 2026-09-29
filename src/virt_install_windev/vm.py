@@ -172,27 +172,34 @@ def _get_disk_writes(vm_name: str, target: str) -> int | None:
 
 
 def _build_steps(config: Config) -> list[tuple[str, str]]:
+    s = config.settings
     steps: list[tuple[str, str]] = [
         ("starting Boot", "Booting from installer"),
         (_DISK_PROGRESS, "Installing Windows"),
         ("[SPECIALIZE] Configuring system settings", "Configuring system settings"),
-        ("[SPECIALIZE] Disabling Defender services", "Disabling Defender"),
-        ("[SPECIALIZE] Running setup.ps1", "Running setup script"),
-        ("[SETUP] Starting PowerShell configuration", "Applying PowerShell configuration"),
     ]
-    if config.win_version in (WinVersion.WIN10, WinVersion.WIN11):
+    if not s.defender:
+        steps.append(("[SPECIALIZE] Disabling Defender services", "Disabling Defender"))
+    steps.append(("[SPECIALIZE] Running setup.ps1", "Running setup script"))
+    steps.append(("[SETUP] Starting PowerShell configuration", "Applying PowerShell configuration"))
+    if s.wsl and config.win_version in (WinVersion.WIN10, WinVersion.WIN11):
         steps.append(("[SETUP] Enabling WSL", "Enabling WSL"))
-    else:
+    elif config.win_version in (WinVersion.SERVER2016, WinVersion.SERVER2022):
         steps.append(("[SETUP] Suppressing Server Manager", "Configuring Server Manager"))
-    if config.win_version in (WinVersion.WIN10, WinVersion.SERVER2016):
+    if s.openssh and config.win_version in (WinVersion.WIN10, WinVersion.SERVER2016):
         steps.append(("[SETUP] Installing Win32-OpenSSH", "Installing OpenSSH (bundled)"))
     steps.append(("[SPECIALIZE] Done, rebooting into OOBE", "Rebooting into OOBE"))
     steps.append(("[OOBE] First login", "Installing VirtIO guest tools"))
     if config.win_version in (WinVersion.SERVER2016, WinVersion.SERVER2022):
         steps.append(("[OOBE] Installing RDSH", "Installing Remote Desktop Session Host"))
-    steps.append(("[OOBE] Installing OpenSSH", "Installing OpenSSH Server"))
-    steps.append(("[OOBE] Removing bloatware", "Removing bloatware"))
-    steps.append(("[OOBE] Installing WinDbg", "Installing WinDbg, Sysinternals & WinFSP"))
+    if s.openssh:
+        steps.append(("[OOBE] Installing OpenSSH", "Installing OpenSSH Server"))
+    if s.remove_bloatware:
+        steps.append(("[OOBE] Removing bloatware", "Removing bloatware"))
+    if s.winget_packages:
+        steps.append(("[OOBE] Installing packages", "Installing packages via winget"))
+    if config.post_install_scripts:
+        steps.append(("[OOBE] Running post-install", "Running post-install scripts"))
     steps.append(("INSTALLATION_COMPLETE", "Installation complete"))
     return steps
 

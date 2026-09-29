@@ -7,7 +7,10 @@ import tempfile
 import threading
 from pathlib import Path
 
-from virt_install_windev.config import Config, WinVersion, detect_win_version, sanitize_computer_name
+from virt_install_windev.config import (
+    Config, WinVersion, detect_win_version, sanitize_computer_name,
+    VMSettings, settings_from_toml, vm_overrides_from_toml,
+)
 from virt_install_windev.ui import error, log, print_success, warn
 
 
@@ -61,13 +64,55 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Path to virtio-win ISO (default: /usr/share/virtio-win/virtio-win.iso)")
     p.add_argument("--ovmf-code", metavar="PATH",
                    help="Path to OVMF firmware (default: /usr/share/OVMF/OVMF_CODE.secboot.fd)")
+    p.add_argument("--config", metavar="PATH",
+                   help="TOML config file for VM settings")
     p.add_argument("--generate-only", metavar="DIR",
                    help="Emit answer files to DIR and exit")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    defaults = {k: v for k, v in parser.parse_args([])._get_kwargs()}
+
+    settings = VMSettings()
+    toml_vm: dict = {}
+    post_install_scripts: list[Path] = []
+
+    if args.config:
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            import tomli as tomllib  # type: ignore[no-redef]
+
+        config_path = Path(args.config)
+        if not config_path.is_file():
+            error(f"config file not found: {config_path}")
+            return 1
+        with open(config_path, "rb") as f:
+            toml_data = tomllib.load(f)
+        settings = settings_from_toml(toml_data)
+        toml_vm = vm_overrides_from_toml(toml_data)
+
+        raw_scripts = toml_data.get("scripts", {}).get("post_install", [])
+        config_dir = config_path.resolve().parent
+        for script_rel in raw_scripts:
+            script_path = config_dir / script_rel
+            if not script_path.is_file():
+                error(
+                    f"post-install script not found: {script_path}",
+                    f"Paths are relative to the config file ({config_path})",
+                )
+                return 1
+            post_install_scripts.append(script_path)
+
+    def _effective(attr: str) -> object:
+        """Return the CLI value if explicitly provided, else the TOML override, else the parser default."""
+        cli_val = getattr(args, attr)
+        if cli_val != defaults.get(attr):
+            return cli_val
+        return toml_vm.get(attr, cli_val)
 
     win_version = args.win_version
 
@@ -79,9 +124,10 @@ def main(argv: list[str] | None = None) -> int:
     if win_version is None:
         win_version = WinVersion.WIN11
 
-    if not re.match(r"^(bridge|network)=\w[\w.-]*$", args.network):
+    effective_network = _effective("network")
+    if not re.match(r"^(bridge|network)=\w[\w.-]*$", effective_network):
         error(
-            f"invalid --network format: {args.network!r}",
+            f"invalid --network format: {effective_network!r}",
             "Expected: bridge=NAME or network=NAME (e.g. bridge=virbr0)",
         )
         return 1
@@ -92,26 +138,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.ovmf_code:
         extra["ovmf_code"] = Path(args.ovmf_code)
 
+    effective_name = _effective("name")
+
     config = Config(
-        name=args.name,
-        vcpus=args.vcpus,
-        ram_mb=args.ram_mb,
-        disk_gb=args.disk_gb,
-        user_name=args.user_name,
-        user_password=args.user_password,
-        computer_name=sanitize_computer_name(args.name),
+        name=effective_name,
+        vcpus=_effective("vcpus"),
+        ram_mb=_effective("ram_mb"),
+        disk_gb=_effective("disk_gb"),
+        user_name=_effective("user_name"),
+        user_password=_effective("user_password"),
+        computer_name=sanitize_computer_name(effective_name),
         win_version=win_version,
         iso_path=args.iso_path,
         insider=args.insider,
         insider_edition=args.edition,
         insider_lang=args.lang,
         insider_timeout=args.timeout,
-        network=args.network,
+        network=effective_network,
         no_wait=args.no_wait,
         force=args.force,
         debug=args.debug,
         iommu=args.iommu,
         kd=args.kd,
+        settings=settings,
+        post_install_scripts=post_install_scripts,
         **extra,
     )
 
