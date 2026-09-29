@@ -1,0 +1,82 @@
+# virt-install-windev configuration file
+#
+# All values below are the defaults. Uncomment and change to customize.
+# Pass to the tool with: virt-install-windev --config config.toml
+# CLI flags override values set here.
+
+[vm]
+# name = "windev"
+# vcpus = 4
+# ram = 8192                    # MiB
+# disk = 64                     # GiB
+# user = "user"
+# password = "pass"
+# network = "bridge=virbr0"     # or "network=default"
+
+[locale]
+# language = "en-US"
+# timezone = "UTC"
+
+[security]
+# defender = false              # Windows Defender services
+# uac = false                   # User Account Control prompts
+# vbs = false                   # Virtualization-Based Security / HVCI
+
+[privacy]
+# telemetry = 0                 # 0=Security, 1=Basic, 2=Enhanced, 3=Full
+# recall = false                # Windows Recall / AI data analysis (24H2+)
+# copilot = false               # Windows Copilot sidebar
+# widgets = false               # Widgets / News and Interests panel
+# consumer_features = false     # "Suggested" apps, tips, pre-installed games
+# bing_search = false           # Bing web results in Start menu search
+
+[updates]
+# notify_only = true            # Notify before downloading (no surprise reboots)
+# no_auto_reboot = true         # Prevent auto-reboot with logged-on users
+
+[desktop]
+# dark_mode = true              # System-wide dark theme
+# animations = false            # UI animations (snappier when disabled in a VM)
+# lock_screen = false           # Lock screen (skips straight to login when disabled)
+
+[explorer]
+# file_extensions = true        # Show file extensions (.txt, .exe, ...)
+# hidden_files = true           # Show hidden files and folders
+# launch_to = "this_pc"         # "this_pc" or "quick_access"
+
+[power]
+# hibernation = false           # Hibernation / Fast Startup (pointless in a VM)
+# monitor_timeout = 0           # Minutes before screen off (0 = never)
+# sleep_timeout = 0             # Minutes before sleep (0 = never)
+
+[developer]
+# mode = true                   # Developer Mode (symlinks without elevation, sideloading)
+# long_paths = true             # Remove 260-character path limit
+
+[apps]
+# wsl = true                    # Windows Subsystem for Linux (client editions only)
+# remove_bloatware = true       # Remove pre-installed Store apps
+# bloatware_keep = [            # Apps to keep when removing bloatware
+#     "Calculator",
+#     "Photos",
+#     "Terminal",
+#     "Store",
+#     "DesktopAppInstaller",
+#     "WindowsNotepad",
+# ]
+# windows_terminal = true       # Configure Windows Terminal defaults (client editions)
+
+[packages]
+# winget = [                    # Packages to install via winget during OOBE
+#     "Microsoft.WinDbg",
+#     "Microsoft.Sysinternals.Suite",
+#     "WinFsp.WinFsp",
+# ]
+
+[services]
+# openssh = true                # OpenSSH Server (port 22)
+# rdp = true                    # Remote Desktop Protocol
+# rdp_usb_redirection = true    # RemoteFX USB device redirection policies
+
+[scripts]
+# post_install = []             # PowerShell scripts to run after setup (paths relative to this file)
