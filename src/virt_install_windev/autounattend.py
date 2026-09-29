@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
 from virt_install_windev.util import xml_escape
@@ -32,181 +33,365 @@ def user_data_for(version: WinVersion) -> str:
     )
 
 
-def copy_openssh_zip_for(version: WinVersion) -> str:
-    if version in (WinVersion.WIN10, WinVersion.SERVER2016):
-        return (
-            "        \n"
-            "        <RunSynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>29</Order>\n"
-            "          <Path>cmd /c for %d in (D E F G H I) do @if exist"
-            " %d:\\OpenSSH-Win64.zip copy /y %d:\\OpenSSH-Win64.zip"
-            " C:\\Windows\\Temp\\OpenSSH-Win64.zip</Path>\n"
-            "        </RunSynchronousCommand>\n"
-            "        \n"
-        )
-    return ""
+# ---------------------------------------------------------------------------
+# Command builders — assemble RunSynchronous / FirstLogonCommands XML
+# from Config.settings.
+# ---------------------------------------------------------------------------
 
-
-def rdsh_firstlogon_for(version: WinVersion) -> str:
-    if version in (WinVersion.SERVER2016, WinVersion.SERVER2022):
-        return (
-            "        \n"
-            "        <SynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>3</Order>\n"
-            "          <CommandLine>cmd /c \"echo [OOBE] Installing RDSH"
-            " role for USB redirection &gt; COM1 || exit /b 0\"</CommandLine>\n"
-            "        </SynchronousCommand>\n"
-            "        <SynchronousCommand wcm:action=\"add\">\n"
-            "          <Order>4</Order>\n"
-            "          <CommandLine>powershell -Command"
-            " \"Install-WindowsFeature -Name RDS-RD-Server"
-            " -ErrorAction Continue\"</CommandLine>\n"
-            "        </SynchronousCommand>\n"
-            "        \n"
-        )
-    return ""
-
-
-_OPENSSH_CAPABILITY = (
-    "        \n"
-    "        <SynchronousCommand wcm:action=\"add\">\n"
-    "          <Order>7</Order>\n"
-    "          <CommandLine>powershell -Command \""
-    "Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'"
-    " -ErrorAction Continue;"
-    " $n=0; while (-not (Get-Service sshd -ErrorAction SilentlyContinue)"
-    " -and $n -lt 30) { Start-Sleep 1; $n++ };"
-    " Set-Service -Name sshd -StartupType Automatic -ErrorAction Continue;"
-    " Start-Service sshd -ErrorAction Continue;"
-    " netsh advfirewall firewall add rule name='OpenSSH Server'"
-    " dir=in action=allow protocol=TCP localport=22\"</CommandLine>\n"
-    "        </SynchronousCommand>\n"
-    "        "
-)
-
-_OPENSSH_START_SERVICE = (
-    "        \n"
-    "        <SynchronousCommand wcm:action=\"add\">\n"
-    "          <Order>7</Order>\n"
-    "          <CommandLine>powershell -Command"
-    " \"Start-Service sshd -ErrorAction Continue\"</CommandLine>\n"
-    "        </SynchronousCommand>\n"
-    "        "
-)
-
-
-def openssh_firstlogon_for(version: WinVersion) -> str:
-    if version in (WinVersion.WIN11, WinVersion.SERVER2022):
-        return _OPENSSH_CAPABILITY
-    return _OPENSSH_START_SERVICE
-
-
-def winget_windbg_for(version: WinVersion) -> str:
+def _sync_cmd(order: int, path: str) -> str:
     return (
-        "        \n"
-        "        <SynchronousCommand wcm:action=\"add\">\n"
-        "          <Order>11</Order>\n"
-        "          <CommandLine>cmd /c \"echo [OOBE] Installing WinDbg"
-        " &gt; COM1 || exit /b 0\"</CommandLine>\n"
-        "        </SynchronousCommand>\n"
-        "        <SynchronousCommand wcm:action=\"add\">\n"
-        "          <Order>12</Order>\n"
-        "          <CommandLine>powershell -Command \""
-        "if (Get-Command winget -ErrorAction SilentlyContinue) { exit };"
-        " $ProgressPreference='SilentlyContinue'; $t=$env:TEMP;"
-        " try { Invoke-WebRequest"
-        " 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx'"
-        " -OutFile $t\\vcl.appx -UseBasicParsing;"
-        " Add-AppxPackage $t\\vcl.appx } catch {};"
-        " try { Invoke-WebRequest"
-        " 'https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6'"
-        " -OutFile $t\\uix.zip -UseBasicParsing;"
-        " Expand-Archive $t\\uix.zip $t\\uix -Force;"
-        " Add-AppxPackage"
-        " (Get-ChildItem $t\\uix\\tools\\AppX\\x64\\Release\\*.appx)"
-        ".FullName } catch {};"
-        " try { Invoke-WebRequest"
-        " 'https://github.com/microsoft/winget-cli/releases/latest"
-        "/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'"
-        " -OutFile $t\\wg.msix -UseBasicParsing;"
-        " Add-AppxPackage $t\\wg.msix } catch {}"
-        "\"</CommandLine>\n"
-        "        </SynchronousCommand>\n"
-        "        <SynchronousCommand wcm:action=\"add\">\n"
-        "          <Order>13</Order>\n"
-        "          <CommandLine>cmd /c winget install Microsoft.WinDbg"
-        " --accept-source-agreements --accept-package-agreements"
-        " --silent</CommandLine>\n"
-        "        </SynchronousCommand>\n"
-        "        <SynchronousCommand wcm:action=\"add\">\n"
-        "          <Order>14</Order>\n"
-        "          <CommandLine>cmd /c winget install"
-        " Microsoft.Sysinternals.Suite --accept-source-agreements"
-        " --accept-package-agreements --silent</CommandLine>\n"
-        "        </SynchronousCommand>\n"
-        "        <SynchronousCommand wcm:action=\"add\">\n"
-        "          <Order>15</Order>\n"
-        "          <CommandLine>cmd /c winget install"
-        " WinFsp.WinFsp --accept-source-agreements"
-        " --accept-package-agreements --silent</CommandLine>\n"
-        "        </SynchronousCommand>\n"
-        "        \n"
+        f'        <RunSynchronousCommand wcm:action="add">\n'
+        f'          <Order>{order}</Order>\n'
+        f'          <Path>{xml_escape(path)}</Path>\n'
+        f'        </RunSynchronousCommand>'
     )
+
+
+def _firstlogon_cmd(order: int, cmdline: str) -> str:
+    return (
+        f'        <SynchronousCommand wcm:action="add">\n'
+        f'          <Order>{order}</Order>\n'
+        f'          <CommandLine>{xml_escape(cmdline)}</CommandLine>\n'
+        f'        </SynchronousCommand>'
+    )
+
+
+def _specialize_cmds(config: Config) -> list[str]:
+    """Return list of command paths for the specialize RunSynchronous section."""
+    s = config.settings
+    v = config.win_version
+    cmds: list[str] = []
+
+    cmds.append(
+        'cmd /c "echo [SPECIALIZE] Configuring system settings > COM1 || exit /b 0"')
+
+    # ConX workaround: copy answer file for oobeSystem pass
+    cmds.append(
+        'cmd /c for %d in (D E F G H I) do @if exist'
+        ' %d:\\autounattend.xml copy /y %d:\\autounattend.xml C:\\unattend.xml')
+
+    # Bypass network requirement for OOBE
+    cmds.append(
+        'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE"'
+        ' /v BypassNRO /t REG_DWORD /d 1 /f')
+
+    if not s.uac:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion'
+            '\\Policies\\System" /v EnableLUA /t REG_DWORD /d 0 /f')
+
+    if not s.vbs:
+        cmds.append(
+            'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard"'
+            ' /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f')
+        cmds.append(
+            'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard'
+            '\\Scenarios\\HypervisorEnforcedCodeIntegrity"'
+            ' /v Enabled /t REG_DWORD /d 0 /f')
+
+    if not s.defender:
+        cmds.append(
+            'cmd /c "echo [SPECIALIZE] Disabling Defender services'
+            ' > COM1 || exit /b 0"')
+        for svc in ("Sense", "WdBoot", "WdFilter",
+                     "WdNisDrv", "WdNisSvc", "WinDefend"):
+            cmds.append(
+                f'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\{svc}"'
+                ' /v Start /t REG_DWORD /d 4 /f')
+
+    if not s.hibernation:
+        cmds.append(
+            'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control'
+            '\\Session Manager\\Power"'
+            ' /v HiberbootEnabled /t REG_DWORD /d 0 /f')
+
+    cmds.append(
+        'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+        '\\DataCollection"'
+        f' /v AllowTelemetry /t REG_DWORD /d {s.telemetry} /f')
+
+    if s.update_notify:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+            '\\WindowsUpdate\\AU" /v AUOptions /t REG_DWORD /d 2 /f')
+    if s.no_auto_reboot:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+            '\\WindowsUpdate\\AU"'
+            ' /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f')
+
+    if not s.consumer_features:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+            '\\CloudContent"'
+            ' /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f')
+
+    if not s.widgets:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh"'
+            ' /v AllowNewsAndInterests /t REG_DWORD /d 0 /f')
+
+    if s.developer_mode:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion'
+            '\\AppModelUnlock"'
+            ' /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f')
+
+    if s.long_paths:
+        cmds.append(
+            'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem"'
+            ' /v LongPathsEnabled /t REG_DWORD /d 1 /f')
+
+    if not s.lock_screen:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+            '\\Personalization" /v NoLockScreen /t REG_DWORD /d 1 /f')
+
+    if not s.recall:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows'
+            '\\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f')
+
+    if s.dark_mode:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion'
+            '\\Themes\\Personalize"'
+            ' /v AppsUseLightTheme /t REG_DWORD /d 0 /f')
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion'
+            '\\Themes\\Personalize"'
+            ' /v SystemUsesLightTheme /t REG_DWORD /d 0 /f')
+
+    if s.rdp_usb_redirection:
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT'
+            '\\Terminal Services"'
+            ' /v fDisablePNPRedir /t REG_DWORD /d 0 /f')
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT'
+            '\\Terminal Services"'
+            ' /v fUsbRedirectionEnable /t REG_DWORD /d 1 /f')
+        cmds.append(
+            'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT'
+            '\\Terminal Services"'
+            ' /v fUsbRedirectionUseDefaultList /t REG_DWORD /d 1 /f')
+
+    if s.openssh and v in (WinVersion.WIN10, WinVersion.SERVER2016):
+        cmds.append(
+            'cmd /c for %d in (D E F G H I) do @if exist'
+            ' %d:\\OpenSSH-Win64.zip copy /y %d:\\OpenSSH-Win64.zip'
+            ' C:\\Windows\\Temp\\OpenSSH-Win64.zip')
+
+    cmds.append(
+        'cmd /c "echo [SPECIALIZE] Running setup.ps1 > COM1 || exit /b 0"')
+    cmds.append(
+        'cmd /c mkdir C:\\Windows\\Setup\\Scripts 2>nul'
+        ' & for %d in (D E F G H I) do @if exist %d:\\setup.ps1'
+        ' copy /y %d:\\setup.ps1 C:\\Windows\\Setup\\Scripts\\setup.ps1')
+    cmds.append(
+        'powershell -ExecutionPolicy Bypass'
+        ' -File C:\\Windows\\Setup\\Scripts\\setup.ps1')
+
+    for script_path in config.post_install_scripts:
+        name = script_path.name
+        cmds.append(
+            f'cmd /c for %d in (D E F G H I) do @if exist %d:\\{name}'
+            f' copy /y %d:\\{name}'
+            f' C:\\Windows\\Setup\\Scripts\\{name}')
+
+    cmds.append('bcdedit /timeout 0')
+    cmds.append(
+        'cmd /c "echo [SPECIALIZE] Done, rebooting into OOBE'
+        ' > COM1 || exit /b 0"')
+
+    return cmds
+
+
+def _firstlogon_cmds(config: Config) -> list[str]:
+    """Return list of command lines for the oobeSystem FirstLogonCommands."""
+    s = config.settings
+    v = config.win_version
+    cmds: list[str] = []
+
+    cmds.append(
+        'cmd /c "echo [OOBE] First login, installing VirtIO guest tools'
+        ' > COM1 || exit /b 0"')
+    cmds.append(
+        'cmd /c for %d in (D E F G H I) do @if exist'
+        ' %d:\\virtio-win-guest-tools.exe'
+        ' %d:\\virtio-win-guest-tools.exe /install /passive /norestart')
+
+    if v in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        cmds.append(
+            'cmd /c "echo [OOBE] Installing RDSH role for USB redirection'
+            ' > COM1 || exit /b 0"')
+        cmds.append(
+            'powershell -Command "Install-WindowsFeature -Name RDS-RD-Server'
+            ' -ErrorAction Continue"')
+
+    # Set network profile to Private (needed for RDP/SSH)
+    cmds.append(
+        "powershell -Command \"Get-NetConnectionProfile"
+        " | Set-NetConnectionProfile -NetworkCategory Private"
+        " -ErrorAction SilentlyContinue;"
+        " Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'"
+        ' -ErrorAction SilentlyContinue"')
+
+    if s.openssh:
+        cmds.append(
+            'cmd /c "echo [OOBE] Installing OpenSSH Server'
+            ' > COM1 || exit /b 0"')
+
+        if v in (WinVersion.WIN11, WinVersion.SERVER2022):
+            cmds.append(
+                'powershell -Command "'
+                "Add-WindowsCapability -Online"
+                " -Name 'OpenSSH.Server~~~~0.0.1.0'"
+                " -ErrorAction Continue;"
+                " $n=0; while (-not (Get-Service sshd"
+                " -ErrorAction SilentlyContinue)"
+                " -and $n -lt 30) { Start-Sleep 1; $n++ };"
+                " Set-Service -Name sshd -StartupType Automatic"
+                " -ErrorAction Continue;"
+                " Start-Service sshd -ErrorAction Continue;"
+                " netsh advfirewall firewall add rule name='OpenSSH Server'"
+                ' dir=in action=allow protocol=TCP localport=22"')
+        else:
+            cmds.append(
+                'powershell -Command'
+                ' "Start-Service sshd -ErrorAction Continue"')
+
+        # Deploy authorized keys
+        cmds.append(
+            "powershell -Command"
+            " \"$f = 'C:\\ProgramData\\ssh\\administrators_authorized_keys';"
+            " foreach ($d in 'D','E','F','G','H','I')"
+            ' { $p = \\"${d}:\\authorized_keys\\";'
+            " if (Test-Path $p) { Copy-Item $p $f -Force; break } };"
+            " if (Test-Path $f)"
+            " { icacls $f /inheritance:r /grant 'SYSTEM:(F)'"
+            " /grant 'Administrators:(F)' }\"")
+
+    if s.remove_bloatware:
+        cmds.append(
+            'cmd /c "echo [OOBE] Removing bloatware > COM1 || exit /b 0"')
+        keep = '|'.join(s.bloatware_keep)
+        cmds.append(
+            'powershell -Command "Get-AppxProvisionedPackage -Online'
+            f" | Where-Object {{ $_.DisplayName -notmatch '{keep}' }}"
+            ' | Remove-AppxProvisionedPackage -AllUsers -Online'
+            ' -ErrorAction Continue"')
+
+    if s.winget_packages:
+        cmds.append(
+            'cmd /c "echo [OOBE] Installing packages > COM1 || exit /b 0"')
+        # Bootstrap winget if needed
+        cmds.append(
+            'powershell -Command "'
+            "if (Get-Command winget -ErrorAction SilentlyContinue) { exit };"
+            " $ProgressPreference='SilentlyContinue'; $t=$env:TEMP;"
+            " try { Invoke-WebRequest"
+            " 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx'"
+            " -OutFile $t\\vcl.appx -UseBasicParsing;"
+            " Add-AppxPackage $t\\vcl.appx } catch {};"
+            " try { Invoke-WebRequest"
+            " 'https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6'"
+            " -OutFile $t\\uix.zip -UseBasicParsing;"
+            " Expand-Archive $t\\uix.zip $t\\uix -Force;"
+            " Add-AppxPackage"
+            " (Get-ChildItem $t\\uix\\tools\\AppX\\x64\\Release\\*.appx)"
+            ".FullName } catch {};"
+            " try { Invoke-WebRequest"
+            " 'https://github.com/microsoft/winget-cli/releases/latest"
+            "/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe"
+            ".msixbundle'"
+            " -OutFile $t\\wg.msix -UseBasicParsing;"
+            ' Add-AppxPackage $t\\wg.msix } catch {}"')
+        for pkg in s.winget_packages:
+            cmds.append(
+                f'cmd /c winget install {pkg}'
+                ' --accept-source-agreements --accept-package-agreements'
+                ' --silent')
+
+    if config.post_install_scripts:
+        cmds.append(
+            'cmd /c "echo [OOBE] Running post-install scripts'
+            ' > COM1 || exit /b 0"')
+        for script_path in config.post_install_scripts:
+            cmds.append(
+                'powershell -ExecutionPolicy Bypass'
+                f' -File C:\\Windows\\Setup\\Scripts\\{script_path.name}')
+
+    cmds.append(
+        'cmd /c "echo INSTALLATION_COMPLETE > COM1 || exit /b 0"')
+    cmds.append('shutdown /s /t 30 /c "Installation complete"')
+
+    return cmds
+
+
+def _render_specialize_commands(config: Config) -> str:
+    cmds = _specialize_cmds(config)
+    parts = [_sync_cmd(i, path) for i, path in enumerate(cmds, 1)]
+    return '\n'.join(parts)
+
+
+def _render_firstlogon_commands(config: Config) -> str:
+    cmds = _firstlogon_cmds(config)
+    parts = [_firstlogon_cmd(i, cmdline) for i, cmdline in enumerate(cmds, 1)]
+    return '\n'.join(parts)
+
+
+def _rdp_components(config: Config) -> str:
+    if not config.settings.rdp:
+        return ""
+    return r"""
+    <component name="Microsoft-Windows-TerminalServices-LocalSessionManager"
+               processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <fDenyTSConnections>false</fDenyTSConnections>
+    </component>
+
+    <component name="Networking-MPSSVC-Svc"
+               processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
+               language="neutral" versionScope="nonSxS"
+               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <FirewallGroups>
+        <FirewallGroup wcm:action="add" wcm:keyValue="RemoteDesktop">
+          <Active>true</Active>
+          <Group>Remote Desktop</Group>
+          <Profile>all</Profile>
+        </FirewallGroup>
+      </FirewallGroups>
+    </component>
+"""
 
 
 # ---------------------------------------------------------------------------
 # Template: the full autounattend.xml with token placeholders.
-#
-# Uses a raw string so Windows paths (C:\unattend.xml) don't trigger
-# Python escape sequence errors.  Version-conditional blocks are replaced
-# by {TOKENS}; config values by YOURUSER / YOURPASSWORD / etc.
 # ---------------------------------------------------------------------------
 
 _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
-  <!--
-    ================================================================
-    PASS 1: windowsPE
-    ================================================================
-    This runs inside the Windows installer environment (WinPE) before
-    anything is written to disk. We use it to:
-      1. Set the installer language (so it doesn't ask)
-      2. Load virtio drivers (so Windows can see our fast virtual disk)
-      3. Bypass hardware checks (TPM, SecureBoot, RAM)
-      4. Partition the disk and select the Windows edition to install
-  -->
   <settings pass="windowsPE">
 
-    <!-- Tell the installer to use English without asking -->
     <component name="Microsoft-Windows-International-Core-WinPE"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <SetupUILanguage>
-        <UILanguage>en-US</UILanguage>
+        <UILanguage>LOCALE_VALUE</UILanguage>
       </SetupUILanguage>
-      <InputLocale>en-US</InputLocale>
-      <SystemLocale>en-US</SystemLocale>
-      <UILanguage>en-US</UILanguage>
-      <UserLocale>en-US</UserLocale>
+      <InputLocale>LOCALE_VALUE</InputLocale>
+      <SystemLocale>LOCALE_VALUE</SystemLocale>
+      <UILanguage>LOCALE_VALUE</UILanguage>
+      <UserLocale>LOCALE_VALUE</UserLocale>
     </component>
 
-    <!--
-      Load virtio drivers from the virtio-win ISO (attached as 2nd CD-ROM,
-      typically drive E: in WinPE). Without these, the Windows installer
-      can't see our virtio disk or network adapter.
-
-      Each driver folder corresponds to a virtual device:
-        NetKVM   = virtio network adapter (fast paravirtualized NIC)
-        viostor  = virtio block storage (fast paravirtualized disk)
-        qxldod   = QXL display driver (better resolution/performance)
-        vioscsi  = virtio SCSI controller
-        Balloon  = memory ballooning (dynamic RAM adjustment)
-        vioserial= virtio serial port (host-guest communication)
-        viorng   = virtio random number generator (entropy source)
-    -->
     <component name="Microsoft-Windows-PnpCustomizationsWinPE"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
@@ -237,29 +422,12 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
       </DriverPaths>
     </component>
 
-    <!--
-      Microsoft-Windows-Setup: the main installer component.
-      We use it to:
-        - Bypass Windows 11 hardware checks (TPM, SecureBoot, RAM)
-        - Partition the virtual disk (GPT: EFI + MSR + Windows)
-        - Select which Windows edition to install (by image index)
-        - Accept the EULA and provide a product key
-    -->
     <component name="Microsoft-Windows-Setup"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
-      <!--
-        BYPASS HARDWARE CHECKS
-        Windows 11 requires TPM 2.0, Secure Boot, and 4 GB RAM.
-        Even though our VM has all of these, we bypass the checks
-        anyway — it avoids edge cases and is what Schneegans does.
-        The "LabConfig" key is Microsoft's official lab/test bypass.
-      -->
-      <!-- NOTE: No serial logging here — WinPE may not have COM1 drivers
-           loaded, and a failed RunSynchronous command aborts Setup entirely. -->
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
@@ -275,37 +443,21 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         </RunSynchronousCommand>
       </RunSynchronous>
 
-      <!--
-        DISK PARTITIONING (GPT layout for UEFI boot)
-        ┌─────────────────────────────────────────────┐
-        │ Partition 1: EFI System Partition (260 MB)  │
-        │   Format: FAT32  — holds the UEFI bootloader│
-        │ Partition 2: MSR (16 MB)                    │
-        │   Microsoft Reserved — used internally      │
-        │ Partition 3: Windows (rest of disk)          │
-        │   Format: NTFS — the actual OS partition    │
-        └─────────────────────────────────────────────┘
-        This is the standard GPT layout for UEFI Windows.
-        No recovery partition — in a VM, you just recreate it.
-      -->
       <DiskConfiguration>
         <Disk wcm:action="add">
           <DiskID>0</DiskID>
           <WillWipeDisk>true</WillWipeDisk>
           <CreatePartitions>
-            <!-- EFI System Partition -->
             <CreatePartition wcm:action="add">
               <Order>1</Order>
               <Size>260</Size>
               <Type>EFI</Type>
             </CreatePartition>
-            <!-- MSR -->
             <CreatePartition wcm:action="add">
               <Order>2</Order>
               <Size>16</Size>
               <Type>MSR</Type>
             </CreatePartition>
-            <!-- Windows -->
             <CreatePartition wcm:action="add">
               <Order>3</Order>
               <Extend>true</Extend>
@@ -329,17 +481,6 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         </Disk>
       </DiskConfiguration>
 
-      <!--
-        IMAGE SELECTION
-        A Windows ISO can contain multiple editions (Home, Pro, Enterprise).
-        InstallFrom picks which one by image index (1 = first edition).
-        InstallTo tells it where to put it (disk 0, partition 3 = NTFS).
-
-        IMPORTANT: Windows 11 24H2+ requires BOTH <InstallFrom> AND
-        <InstallTo>. Older answer files with only <InstallTo> will fail
-        with a generic "installation has failed" error. This was a breaking
-        change in the "ConX" setup engine introduced in 24H2.
-      -->
       <ImageInstall>
         <OSImage>
           <InstallFrom>
@@ -355,34 +496,14 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         </OSImage>
       </ImageInstall>
 
-      
+
       {USERDATA}
-      
+
     </component>
   </settings>
 
-  <!--
-    ================================================================
-    PASS 4: specialize
-    ================================================================
-    This runs on the FIRST BOOT into the installed OS, as SYSTEM,
-    before any user account exists. It's the right place for:
-      - Machine-specific settings (computer name)
-      - Enabling services (RDP, firewall rules)
-      - Registry tweaks that need HKLM access
-      - Disabling Defender (must happen here — once OOBE finishes,
-        Tamper Protection blocks changes to Defender services)
-
-    All the "reg add" commands below modify the Windows registry.
-    The registry is a hierarchical database where Windows stores
-    configuration. Key paths work like filesystem paths:
-      HKLM = HKEY_LOCAL_MACHINE (system-wide settings)
-      HKU  = HKEY_USERS (per-user settings)
-    Values have types: REG_DWORD = 32-bit integer, REG_SZ = string.
-  -->
   <settings pass="specialize">
 
-    <!-- Set the computer/hostname -->
     <component name="Microsoft-Windows-Shell-Setup"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
@@ -390,337 +511,28 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <ComputerName>YOURCOMPUTERNAME</ComputerName>
     </component>
-
-    <!--
-      ENABLE REMOTE DESKTOP (RDP)
-      Two steps: (1) tell Terminal Services to accept connections,
-      (2) open the firewall to allow inbound RDP traffic.
-      After install, you can connect from your Linux host with:
-        xfreerdp /v:<vm-ip> /u:<USER_NAME> /p:<USER_PASSWORD> /dynamic-resolution
-    -->
-    <component name="Microsoft-Windows-TerminalServices-LocalSessionManager"
-               processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
-               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <fDenyTSConnections>false</fDenyTSConnections>
-    </component>
-
-    <component name="Networking-MPSSVC-Svc"
-               processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
-               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <FirewallGroups>
-        <FirewallGroup wcm:action="add" wcm:keyValue="RemoteDesktop">
-          <Active>true</Active>
-          <Group>Remote Desktop</Group>
-          <Profile>all</Profile>
-        </FirewallGroup>
-      </FirewallGroups>
-    </component>
-
-    <!--
-      DEPLOYMENT — RunSynchronous commands
-      These commands run sequentially during the specialize pass.
-      Think of it as a batch script that Windows runs automatically.
-      Each command gets an Order number for sequencing.
-
-      WHY SPECIALIZE?
-      This pass runs as SYSTEM before any user exists. It's the only
-      window where Defender services can be disabled via registry —
-      once OOBE finishes, Tamper Protection kicks in and blocks
-      registry changes to security-related services.
-    -->
+{RDP_COMPONENTS}
     <component name="Microsoft-Windows-Deployment"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <RunSynchronous>
-
-        <!-- Log progress to the serial port (COM1) so the host script
-             can display real-time installation status. -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>cmd /c "echo [SPECIALIZE] Configuring system settings &gt; COM1 || exit /b 0"</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          WORKAROUND: Windows 11 24H2+ "ConX" setup engine bug
-          The new setup engine doesn't cache autounattend.xml from
-          CD for the oobeSystem pass. So we manually copy it to
-          C:\unattend.xml — Windows checks that path automatically.
-          The "for %d in (D E F G H I)" loop tries each CD-ROM
-          drive letter since we don't know which one it'll be.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <Path>cmd /c for %d in (D E F G H I) do @if exist %d:\autounattend.xml copy /y %d:\autounattend.xml C:\unattend.xml</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          Skip the "network required" OOBE screen.
-          BypassNRO = Bypass Network Requirement for OOBE.
-          Without this, Windows insists on an internet connection
-          and a Microsoft account during first-run setup.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>3</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          UAC (User Account Control): set to "Never notify"
-          EnableLUA=0 disables the elevation prompt entirely.
-          In a dev VM, this avoids constant "Allow this app?" popups.
-          (Don't do this on a production machine!)
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>4</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE VBS (Virtualization-Based Security)
-          VBS uses the hypervisor to isolate security processes.
-          In a VM, this means nested virtualization overhead for
-          minimal benefit. Disabling it improves VM performance.
-          HVCI (Hypervisor-enforced Code Integrity) is part of VBS.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>5</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>6</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" /v Enabled /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <RunSynchronousCommand wcm:action="add">
-          <Order>7</Order>
-          <Path>cmd /c "echo [SPECIALIZE] Disabling Defender services &gt; COM1 || exit /b 0"</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE WINDOWS DEFENDER
-          Setting a service's Start value to 4 means "Disabled".
-          (0=Boot, 1=System, 2=Automatic, 3=Manual, 4=Disabled)
-          We disable all Defender-related services:
-            Sense     = Microsoft Defender Advanced Threat Protection
-            WdBoot    = Defender boot-time driver
-            WdFilter  = Defender mini-filter driver (real-time scanning)
-            WdNisDrv  = Defender Network Inspection driver
-            WdNisSvc  = Defender Network Inspection service
-            WinDefend = Defender antimalware service
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>8</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\Sense" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>9</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdBoot" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>10</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdFilter" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>11</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdNisDrv" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>12</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WdNisSvc" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>13</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Services\WinDefend" /v Start /t REG_DWORD /d 4 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE HIBERNATION / FAST STARTUP
-          Hibernation writes RAM to disk on shutdown — pointless in
-          a VM (snapshots are better). Fast Startup is a hybrid
-          hibernate that also wastes disk space in a VM context.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>14</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          TELEMETRY: set to "Security" level (the minimum).
-          AllowTelemetry=0 means only security-critical data is sent.
-          (1=Basic, 2=Enhanced, 3=Full)
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>15</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          WINDOWS UPDATE: notify before downloading
-          AUOptions=2 means "Notify for download and auto install".
-          This prevents surprise reboots during development.
-          NoAutoRebootWithLoggedOnUsers=1 adds another safety net.
-          (1=Auto download+install, 2=Notify, 3=Auto download,
-           4=Auto download + schedule install)
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>16</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /t REG_DWORD /d 2 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>17</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE CONSUMER FEATURES / WIDGETS
-          ConsumerFeatures = pre-installed games, "suggested" apps.
-          Dsh (AllowNewsAndInterests=0) = the Widgets panel on the
-          taskbar that shows news, weather, stocks, etc.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>18</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>19</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Dsh" /v AllowNewsAndInterests /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DEVELOPER MODE: allows sideloading apps, creating symlinks
-          without elevation, and other dev-friendly behaviors.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>20</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          LONG PATHS: Win32 APIs normally cap paths at 260 characters.
-          Git repos with deep nesting and node_modules hit this constantly.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>21</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE LOCK SCREEN: in a VM, the lock screen is just
-          an obstacle. NoLockScreen skips straight to the login prompt.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>22</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization" /v NoLockScreen /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DISABLE RECALL / AI DATA ANALYSIS (Windows 11 24H2+).
-          Recall takes periodic screenshots and indexes them with AI.
-          Pointless in a dev VM and wastes disk/CPU.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>23</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          DARK MODE (system-wide): sets the default theme for the
-          taskbar, Start menu, and apps. Per-user defaults are also
-          set in setup.ps1 via the DefaultUser hive.
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>24</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v AppsUseLightTheme /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>25</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v SystemUsesLightTheme /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          RDP USB REDIRECTION: allow RemoteFX USB device redirection.
-          This lets xfreerdp's /usb:auto forward host USB devices into
-          the VM over RDP. Three settings are needed:
-            1. fDisablePNPRedir=0: server-side, allow PnP device redirection
-               (defaults to blocked on Server 2016+)
-            2. fUsbRedirectionEnable=1: client-side RemoteFX USB policy
-            3. fUsbRedirectionUseDefaultList=1: use the default device list
-        -->
-        <RunSynchronousCommand wcm:action="add">
-          <Order>26</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fDisablePNPRedir /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>27</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fUsbRedirectionEnable /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>28</Order>
-          <Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v fUsbRedirectionUseDefaultList /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-
-        <!--
-          COPY AND RUN POWERSHELL SETUP SCRIPT
-          Some settings need PowerShell or DefaultUser hive
-          manipulation, which is too complex for single reg commands.
-          We copy setup.ps1 from the answer-file CD to disk, then run it.
-        -->
-{COPY_OPENSSH_ZIP}        <RunSynchronousCommand wcm:action="add">
-          <Order>30</Order>
-          <Path>cmd /c "echo [SPECIALIZE] Running setup.ps1 &gt; COM1 || exit /b 0"</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>31</Order>
-          <Path>cmd /c mkdir C:\Windows\Setup\Scripts 2>nul &amp; for %d in (D E F G H I) do @if exist %d:\setup.ps1 copy /y %d:\setup.ps1 C:\Windows\Setup\Scripts\setup.ps1</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>32</Order>
-          <Path>powershell -ExecutionPolicy Bypass -File C:\Windows\Setup\Scripts\setup.ps1</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>33</Order>
-          <Path>bcdedit /timeout 0</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>34</Order>
-          <Path>cmd /c "echo [SPECIALIZE] Done, rebooting into OOBE &gt; COM1 || exit /b 0"</Path>
-        </RunSynchronousCommand>
+{SPECIALIZE_COMMANDS}
       </RunSynchronous>
     </component>
   </settings>
 
-  <!--
-    ================================================================
-    PASS 7: oobeSystem
-    ================================================================
-    The Out-of-Box Experience (OOBE) is what you normally see when
-    you first turn on a new Windows PC — region, keyboard, Microsoft
-    account, privacy settings, etc. We skip ALL of it and instead:
-      1. Create a local admin account (no Microsoft account needed)
-      2. Auto-login once (to run FirstLogonCommands)
-      3. Install VirtIO guest tools (clipboard sharing, etc.)
-      4. Remove bloatware (pre-installed apps nobody asked for)
-      5. Shut down (signaling to our script that install is done)
-  -->
   <settings pass="oobeSystem">
-    <!-- Pre-set locale so OOBE skips the region and keyboard screens.
-         Required for both Win10 and Win11 — without this, the interactive
-         region selector appears even when Shell-Setup OOBE is configured. -->
     <component name="Microsoft-Windows-International-Core"
                processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35"
                language="neutral" versionScope="nonSxS"
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <InputLocale>en-US</InputLocale>
-      <SystemLocale>en-US</SystemLocale>
-      <UILanguage>en-US</UILanguage>
-      <UserLocale>en-US</UserLocale>
+      <InputLocale>LOCALE_VALUE</InputLocale>
+      <SystemLocale>LOCALE_VALUE</SystemLocale>
+      <UILanguage>LOCALE_VALUE</UILanguage>
+      <UserLocale>LOCALE_VALUE</UserLocale>
     </component>
 
     <component name="Microsoft-Windows-Shell-Setup"
@@ -729,8 +541,6 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
-      <!-- Hide every OOBE screen. ProtectYourPC=3 means "don't enable
-           SmartScreen" — we just want to get to the desktop. -->
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <HideLocalAccountScreen>true</HideLocalAccountScreen>
@@ -739,8 +549,6 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         <ProtectYourPC>3</ProtectYourPC>
       </OOBE>
 
-      <!-- Create a local admin account. The username and password
-           are substituted by sed from the script's command-line options. -->
       <UserAccounts>
         <LocalAccounts>
           <LocalAccount wcm:action="add">
@@ -754,12 +562,6 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         </LocalAccounts>
       </UserAccounts>
 
-      <!--
-        AUTO-LOGIN: log in as our user ONCE (LogonCount=1).
-        This is needed so that FirstLogonCommands can run —
-        they execute as the user, not as SYSTEM. After the
-        one login, auto-logon is disabled automatically.
-      -->
       <AutoLogon>
         <Enabled>true</Enabled>
         <Username>YOURUSER</Username>
@@ -770,100 +572,10 @@ _TEMPLATE = r"""<?xml version="1.0" encoding="utf-8"?>
         <LogonCount>1</LogonCount>
       </AutoLogon>
 
-      <TimeZone>UTC</TimeZone>
+      <TimeZone>TIMEZONE_VALUE</TimeZone>
 
-      <!--
-        FIRST-LOGIN COMMANDS
-        These run as the logged-in user on the very first login.
-        Order matters — we install drivers, clean up bloat, then shut down.
-      -->
       <FirstLogonCommands>
-
-        <SynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <CommandLine>cmd /c "echo [OOBE] First login, installing VirtIO guest tools &gt; COM1 || exit /b 0"</CommandLine>
-        </SynchronousCommand>
-
-        <!--
-          Install VirtIO guest tools — provides:
-            - SPICE agent (clipboard sharing, dynamic resolution)
-            - QEMU guest agent (graceful shutdown from host)
-            - Memory balloon service
-          The installer is on the virtio-win CD; we search drive letters.
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <CommandLine>cmd /c for %d in (D E F G H I) do @if exist %d:\virtio-win-guest-tools.exe %d:\virtio-win-guest-tools.exe /install /passive /norestart</CommandLine>
-        </SynchronousCommand>
-
-{RDSH_FIRSTLOGON}
-        <!--
-          Set network profile to Private. libvirt's NAT network defaults
-          to "Public" which blocks inbound RDP/SSH. Must run at FirstLogon
-          (not specialize) because the profile resets after OOBE reboot.
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>5</Order>
-          <CommandLine>powershell -Command "Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue; Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction SilentlyContinue"</CommandLine>
-        </SynchronousCommand>
-
-        <SynchronousCommand wcm:action="add">
-          <Order>6</Order>
-          <CommandLine>cmd /c "echo [OOBE] Installing OpenSSH Server &gt; COM1 || exit /b 0"</CommandLine>
-        </SynchronousCommand>
-
-{OPENSSH_FIRSTLOGON}
-
-        <!--
-          Deploy SSH authorized keys for passwordless login.
-          Windows OpenSSH uses a special file for admin users instead
-          of the usual ~/.ssh/authorized_keys. The ACL must restrict
-          access to SYSTEM and Administrators only, or sshd rejects it.
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>8</Order>
-          <CommandLine>powershell -Command "$f = 'C:\ProgramData\ssh\administrators_authorized_keys'; foreach ($d in 'D','E','F','G','H','I') { $p = \"${d}:\authorized_keys\"; if (Test-Path $p) { Copy-Item $p $f -Force; break } }; if (Test-Path $f) { icacls $f /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' }"</CommandLine>
-        </SynchronousCommand>
-
-        <SynchronousCommand wcm:action="add">
-          <Order>9</Order>
-          <CommandLine>cmd /c "echo [OOBE] Removing bloatware &gt; COM1 || exit /b 0"</CommandLine>
-        </SynchronousCommand>
-
-        <!--
-          REMOVE BLOATWARE
-          Remove all pre-installed Store apps EXCEPT the useful ones:
-          Calculator, Photos, Terminal, Store, App Installer, Notepad.
-          This gets rid of Clipchamp, LinkedIn, TikTok, Instagram,
-          Xbox, Solitaire, etc. Using -AllUsers ensures new user
-          profiles also won't get this junk.
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>10</Order>
-          <CommandLine>powershell -Command "Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -notmatch 'Calculator|Photos|Terminal|Store|DesktopAppInstaller|WindowsNotepad' } | Remove-AppxProvisionedPackage -AllUsers -Online -ErrorAction Continue"</CommandLine>
-        </SynchronousCommand>
-
-{WINGET_WINDBG}
-        <!--
-          Write the completion marker to serial port BEFORE shutting down.
-          The host script watches the serial log for this exact string
-          to distinguish the final shutdown from intermediate shutdowns
-          that happen during installation (e.g., after DISM features).
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>16</Order>
-          <CommandLine>cmd /c "echo INSTALLATION_COMPLETE &gt; COM1 || exit /b 0"</CommandLine>
-        </SynchronousCommand>
-
-        <!--
-          SHUT DOWN — signal to the host script that installation is done.
-          Our bash script polls "virsh domstate" waiting for "shut off".
-          30-second delay gives the previous commands time to finish.
-        -->
-        <SynchronousCommand wcm:action="add">
-          <Order>17</Order>
-          <CommandLine>shutdown /s /t 30 /c "Installation complete"</CommandLine>
-        </SynchronousCommand>
+{FIRSTLOGON_COMMANDS}
       </FirstLogonCommands>
     </component>
   </settings>
@@ -876,12 +588,13 @@ def _render(template: str, config: Config) -> str:
     params = VERSION_PARAMS[version]
     replacements = {
         "{USERDATA}": user_data_for(version),
-        "{COPY_OPENSSH_ZIP}": copy_openssh_zip_for(version),
-        "{RDSH_FIRSTLOGON}": rdsh_firstlogon_for(version),
-        "{OPENSSH_FIRSTLOGON}": openssh_firstlogon_for(version),
-        "{WINGET_WINDBG}": winget_windbg_for(version),
+        "{RDP_COMPONENTS}": _rdp_components(config),
+        "{SPECIALIZE_COMMANDS}": _render_specialize_commands(config),
+        "{FIRSTLOGON_COMMANDS}": _render_firstlogon_commands(config),
         "VIRTIO_DRIVER_DIR": params.virtio_driver_dir,
         "{IMAGE_INDEX}": str(params.image_index),
+        "LOCALE_VALUE": config.settings.locale,
+        "TIMEZONE_VALUE": config.settings.timezone,
         "YOURCOMPUTERNAME": xml_escape(config.computer_name),
         "YOURPASSWORD": xml_escape(config.user_password),
         "YOURUSER": xml_escape(config.user_name),

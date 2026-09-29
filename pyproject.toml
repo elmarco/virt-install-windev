@@ -7,7 +7,7 @@ name = "virt-install-windev"
 version = "0.1.0"
 description = "Create a fully-unattended Windows dev VM with libvirt/QEMU/KVM"
 requires-python = ">=3.9"
-dependencies = ["rich"]
+dependencies = ["rich", "tomli; python_version < '3.11'"]
 
 [project.optional-dependencies]
 insider = ["selenium"]

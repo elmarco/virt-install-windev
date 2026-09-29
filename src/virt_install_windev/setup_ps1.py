@@ -3,76 +3,11 @@ from __future__ import annotations
 from virt_install_windev.config import Config, WinVersion
 
 
-def windows_terminal_config_for(version: WinVersion) -> str:
-    if version not in (WinVersion.WIN10, WinVersion.WIN11):
-        return ""
-    return r'''# =====================================================================
-# WINDOWS TERMINAL: write default settings for all new users
-# =====================================================================
-Log "[SETUP] Configuring Windows Terminal defaults"
-$wtDir = 'C:\Users\Default\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
-New-Item -ItemType Directory -Force -Path $wtDir | Out-Null
-@'
-{
-    "$schema": "https://aka.ms/terminal-profiles-schema",
-    "defaultProfile": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
-    "theme": "dark",
-    "confirmCloseAllTabs": false,
-    "profiles": {
-        "defaults": {
-            "font": {
-                "face": "Cascadia Mono",
-                "size": 12
-            },
-            "opacity": 95,
-            "useAcrylic": true,
-            "padding": "8",
-            "startingDirectory": "C:\\Users\\%USERNAME%"
-        },
-        "list": []
-    },
-    "actions": []
-}
-'@ | Set-Content (Join-Path $wtDir 'settings.json') -Encoding UTF8
-'''
+_LAUNCH_TO_VALUES = {"this_pc": 1, "quick_access": 2}
 
 
-def san_policy_for(version: WinVersion) -> str:
-    if version not in (WinVersion.SERVER2016, WinVersion.SERVER2022):
-        return ""
-    return (
-        "# =====================================================================\n"
-        "# SAN POLICY: auto-online new disks (Server defaults to OfflineShared)\n"
-        "# =====================================================================\n"
-        'Log "[SETUP] Setting SAN policy to OnlineAll"\n'
-        "Set-StorageSetting -NewDiskPolicy OnlineAll\n\n"
-    )
-
-
-def wsl_or_server_manager_for(version: WinVersion) -> str:
-    if version in (WinVersion.WIN10, WinVersion.WIN11):
-        return (
-            "# =====================================================================\n"
-            "# ENABLE WSL (Windows Subsystem for Linux)\n"
-            "# =====================================================================\n"
-            "# WSL lets you run Linux distributions inside Windows. Two features\n"
-            "# are needed:\n"
-            "#   1. Microsoft-Windows-Subsystem-Linux: the WSL core\n"
-            "#   2. VirtualMachinePlatform: required for WSL 2 (which runs a real\n"
-            "#      Linux kernel in a lightweight VM — much faster than WSL 1)\n"
-            "# After the VM boots, run \"wsl --install\" to pick a distro.\n"
-            'Log "[SETUP] Enabling WSL and VirtualMachinePlatform"\n'
-            "dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux /All /NoRestart\n"
-            "dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart\n"
-        )
-    return (
-        'Log "[SETUP] Suppressing Server Manager auto-launch"\n'
-        'reg.exe add "HKLM\\SOFTWARE\\Microsoft\\ServerManager"'
-        " /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f\n"
-    )
-
-
-_TEMPLATE = r"""# 'Continue' means: if a command fails, print the error but keep going.
+def _header() -> str:
+    return r"""# 'Continue' means: if a command fails, print the error but keep going.
 # We don't want one failed tweak to abort the entire setup.
 $ErrorActionPreference = 'Continue'
 
@@ -106,15 +41,33 @@ Log "[SETUP] Starting PowerShell configuration"
 # locked and new user profile creation will fail.
 Log "[SETUP] Loading DefaultUser registry hive"
 reg.exe load "HKU\DefaultUser" "C:\Users\Default\NTUSER.DAT"
+"""
 
+
+def _file_extensions() -> str:
+    return r"""
 # FILE EXPLORER: show file extensions (.txt, .exe, etc.) and open
 # to "This PC" instead of the default "Quick Access" / "Home" view.
 reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f
-reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v LaunchTo /t REG_DWORD /d 1 /f
+"""
 
+
+def _launch_to(value: int) -> str:
+    return (
+        f'reg.exe add "HKU\\DefaultUser\\Software\\Microsoft\\Windows\\'
+        f'CurrentVersion\\Explorer\\Advanced" /v LaunchTo /t REG_DWORD /d {value} /f\n'
+    )
+
+
+def _copilot_disable() -> str:
+    return r"""
 # COPILOT: disable the AI assistant sidebar per-user
 reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\WindowsCopilot" /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f
+"""
 
+
+def _content_delivery_manager_disable() -> str:
+    return r"""
 # CONTENT DELIVERY MANAGER: disable all "suggested" content.
 # These are the mechanisms Windows uses to install apps you didn't
 # ask for, show "tips" that are really ads, and push notifications
@@ -142,23 +95,43 @@ foreach ($v in @(
 )) {
     reg.exe add $cdm /v $v /t REG_DWORD /d 0 /f
 }
+"""
 
+
+def _bing_search_disable() -> str:
+    return r"""
 # Disable Bing web results in Start menu search
 reg.exe add "HKU\DefaultUser\Software\Policies\Microsoft\Windows\Explorer" /v DisableSearchBoxSuggestions /t REG_DWORD /d 1 /f
+"""
 
+
+def _dark_mode() -> str:
+    return r"""
 # DARK MODE: set per-user default for apps and system chrome
 $personalize = "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 reg.exe add $personalize /v AppsUseLightTheme /t REG_DWORD /d 0 /f
 reg.exe add $personalize /v SystemUsesLightTheme /t REG_DWORD /d 0 /f
+"""
 
+
+def _hidden_files() -> str:
+    return r"""
 # SHOW HIDDEN FILES: Hidden=1 means show, 2 means don't show
 reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v Hidden /t REG_DWORD /d 1 /f
+"""
 
+
+def _animations_disable() -> str:
+    return r"""
 # DISABLE ANIMATIONS: reduces visual effects for snappier VM feel
 reg.exe add "HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
 reg.exe add "HKU\DefaultUser\Control Panel\Desktop" /v UserPreferencesMask /t REG_BINARY /d 9012038010000000 /f
 reg.exe add "HKU\DefaultUser\Control Panel\Desktop\WindowMetrics" /v MinAnimate /t REG_SZ /d 0 /f
+"""
 
+
+def _hive_unload() -> str:
+    return r"""
 # CRITICAL: Force garbage collection and wait before unloading.
 # PowerShell/.NET may hold references to registry keys. If we unload
 # the hive while it's still referenced, the unload fails silently and
@@ -168,20 +141,100 @@ reg.exe add "HKU\DefaultUser\Control Panel\Desktop\WindowMetrics" /v MinAnimate 
 Start-Sleep -Seconds 1
 reg.exe unload "HKU\DefaultUser"
 Log "[SETUP] DefaultUser hive unloaded"
+"""
 
+
+def _power_settings(monitor_timeout: int, sleep_timeout: int) -> str:
+    return (
+        "\n"
+        "# =====================================================================\n"
+        "# POWER SETTINGS\n"
+        "# =====================================================================\n"
+        "# In a VM, there's no battery and no physical monitor. Disable screen\n"
+        "# timeout and sleep so the VM doesn't go dark during long builds.\n"
+        'Log "[SETUP] Disabling screen timeout and sleep"\n'
+        f"powercfg.exe /change monitor-timeout-ac {monitor_timeout}\n"
+        f"powercfg.exe /change standby-timeout-ac {sleep_timeout}\n"
+    )
+
+
+def _windows_terminal_config(version: WinVersion) -> str:
+    if version not in (WinVersion.WIN10, WinVersion.WIN11):
+        return ""
+    return r'''# =====================================================================
+# WINDOWS TERMINAL: write default settings for all new users
 # =====================================================================
-# POWER SETTINGS
-# =====================================================================
-# In a VM, there's no battery and no physical monitor. Disable screen
-# timeout and sleep so the VM doesn't go dark during long builds.
-Log "[SETUP] Disabling screen timeout and sleep"
-powercfg.exe /change monitor-timeout-ac 0
-powercfg.exe /change standby-timeout-ac 0
+Log "[SETUP] Configuring Windows Terminal defaults"
+$wtDir = 'C:\Users\Default\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
+New-Item -ItemType Directory -Force -Path $wtDir | Out-Null
+@'
+{
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "defaultProfile": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+    "theme": "dark",
+    "confirmCloseAllTabs": false,
+    "profiles": {
+        "defaults": {
+            "font": {
+                "face": "Cascadia Mono",
+                "size": 12
+            },
+            "opacity": 95,
+            "useAcrylic": true,
+            "padding": "8",
+            "startingDirectory": "C:\\Users\\%USERNAME%"
+        },
+        "list": []
+    },
+    "actions": []
+}
+'@ | Set-Content (Join-Path $wtDir 'settings.json') -Encoding UTF8
+'''
 
 
-{WINDOWS_TERMINAL_CONFIG}
-{WSL_OR_SERVER_MANAGER}
-{SAN_POLICY}# =====================================================================
+def _wsl(version: WinVersion) -> str:
+    if version not in (WinVersion.WIN10, WinVersion.WIN11):
+        return ""
+    return (
+        "# =====================================================================\n"
+        "# ENABLE WSL (Windows Subsystem for Linux)\n"
+        "# =====================================================================\n"
+        "# WSL lets you run Linux distributions inside Windows. Two features\n"
+        "# are needed:\n"
+        "#   1. Microsoft-Windows-Subsystem-Linux: the WSL core\n"
+        "#   2. VirtualMachinePlatform: required for WSL 2 (which runs a real\n"
+        "#      Linux kernel in a lightweight VM — much faster than WSL 1)\n"
+        "# After the VM boots, run \"wsl --install\" to pick a distro.\n"
+        'Log "[SETUP] Enabling WSL and VirtualMachinePlatform"\n'
+        "dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Windows-Subsystem-Linux /All /NoRestart\n"
+        "dism.exe /Online /Enable-Feature /FeatureName:VirtualMachinePlatform /All /NoRestart\n"
+    )
+
+
+def _server_manager(version: WinVersion) -> str:
+    if version not in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        return ""
+    return (
+        'Log "[SETUP] Suppressing Server Manager auto-launch"\n'
+        'reg.exe add "HKLM\\SOFTWARE\\Microsoft\\ServerManager"'
+        " /v DoNotOpenServerManagerAtLogon /t REG_DWORD /d 1 /f\n"
+    )
+
+
+def _san_policy(version: WinVersion) -> str:
+    if version not in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        return ""
+    return (
+        "# =====================================================================\n"
+        "# SAN POLICY: auto-online new disks (Server defaults to OfflineShared)\n"
+        "# =====================================================================\n"
+        'Log "[SETUP] Setting SAN policy to OnlineAll"\n'
+        "Set-StorageSetting -NewDiskPolicy OnlineAll\n\n"
+    )
+
+
+def _openssh_zip() -> str:
+    return r"""# =====================================================================
 # OPENSSH (Win10 / Server 2016 — installed from bundled ZIP)
 # =====================================================================
 # Win11 and Server 2022 use Add-WindowsCapability in FirstLogonCommands.
@@ -197,24 +250,63 @@ if (Test-Path $opensshZip) {
     Set-Service sshd -StartupType Automatic
     netsh advfirewall firewall add rule name='OpenSSH Server' dir=in action=allow protocol=TCP localport=22
 }
+"""
 
-Log "[SETUP] PowerShell configuration complete"
+
+def _footer() -> str:
+    return r"""Log "[SETUP] PowerShell configuration complete"
 if ($serial -and $serial.IsOpen) { $serial.Close() }
 """
 
 
 def generate_setup_ps1(config: Config) -> str:
-    text = _TEMPLATE
-    text = text.replace(
-        "{WINDOWS_TERMINAL_CONFIG}",
-        windows_terminal_config_for(config.win_version),
-    )
-    text = text.replace(
-        "{WSL_OR_SERVER_MANAGER}",
-        wsl_or_server_manager_for(config.win_version),
-    )
-    text = text.replace(
-        "{SAN_POLICY}",
-        san_policy_for(config.win_version),
-    )
-    return text
+    s = config.settings
+    v = config.win_version
+    parts: list[str] = []
+
+    parts.append(_header())
+
+    if s.file_extensions:
+        parts.append(_file_extensions())
+
+    launch_val = _LAUNCH_TO_VALUES.get(s.launch_to)
+    if launch_val is not None:
+        parts.append(_launch_to(launch_val))
+
+    if not s.copilot:
+        parts.append(_copilot_disable())
+
+    if not s.consumer_features:
+        parts.append(_content_delivery_manager_disable())
+
+    if not s.bing_search:
+        parts.append(_bing_search_disable())
+
+    if s.dark_mode:
+        parts.append(_dark_mode())
+
+    if s.hidden_files:
+        parts.append(_hidden_files())
+
+    if not s.animations:
+        parts.append(_animations_disable())
+
+    parts.append(_hive_unload())
+    parts.append(_power_settings(s.monitor_timeout, s.sleep_timeout))
+
+    # Assemble version/settings-conditional middle sections.
+    # Replicate the original template's whitespace: each token slot
+    # contributes a \n separator, even when the replacement is empty.
+    wt = _windows_terminal_config(v) if s.windows_terminal else ""
+    wsl_block = _wsl(v) if s.wsl else ""
+    sm_block = _server_manager(v)
+    wsl_sm = wsl_block + sm_block
+    san = _san_policy(v)
+    parts.append("\n\n" + wt + "\n" + wsl_sm + "\n" + san)
+
+    if s.openssh:
+        parts.append(_openssh_zip())
+
+    parts.append("\n" + _footer())
+
+    return "".join(parts)

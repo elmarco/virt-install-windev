@@ -6,7 +6,7 @@ import re
 import pytest
 from defusedxml import ElementTree as ET
 
-from virt_install_windev.config import Config, WinVersion
+from virt_install_windev.config import Config, VMSettings, WinVersion
 from virt_install_windev import autounattend
 
 GOLDEN = pathlib.Path(__file__).parent / "golden"
@@ -35,30 +35,41 @@ def test_user_data_server2022_gvlk():
     assert "VDYBN-27WPP-V4HQT-9VMD4-VMK7H" in autounattend.user_data_for(WinVersion.SERVER2022)
 
 
-def test_copy_openssh_zip_win10_server2016_only():
-    assert "OpenSSH-Win64.zip" in autounattend.copy_openssh_zip_for(WinVersion.WIN10)
-    assert "OpenSSH-Win64.zip" in autounattend.copy_openssh_zip_for(WinVersion.SERVER2016)
-    assert autounattend.copy_openssh_zip_for(WinVersion.WIN11) == ""
-    assert autounattend.copy_openssh_zip_for(WinVersion.SERVER2022) == ""
+def test_openssh_zip_in_win10_server2016():
+    for v in (WinVersion.WIN10, WinVersion.SERVER2016):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "OpenSSH-Win64.zip" in xml
+
+
+def test_no_openssh_zip_in_win11_server2022():
+    for v in (WinVersion.WIN11, WinVersion.SERVER2022):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "OpenSSH-Win64.zip" not in xml
 
 
 def test_rdsh_only_for_servers():
-    assert "RDS-RD-Server" in autounattend.rdsh_firstlogon_for(WinVersion.SERVER2016)
-    assert "RDS-RD-Server" in autounattend.rdsh_firstlogon_for(WinVersion.SERVER2022)
-    assert autounattend.rdsh_firstlogon_for(WinVersion.WIN11) == ""
-    assert autounattend.rdsh_firstlogon_for(WinVersion.WIN10) == ""
+    for v in (WinVersion.SERVER2016, WinVersion.SERVER2022):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "RDS-RD-Server" in xml
+    for v in (WinVersion.WIN10, WinVersion.WIN11):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "RDS-RD-Server" not in xml
 
 
-def test_openssh_firstlogon_variants():
-    win11 = autounattend.openssh_firstlogon_for(WinVersion.WIN11)
-    assert "Add-WindowsCapability" in win11 and "OpenSSH.Server~~~~0.0.1.0" in win11
-    win10 = autounattend.openssh_firstlogon_for(WinVersion.WIN10)
-    assert "Start-Service sshd" in win10 and "Add-WindowsCapability" not in win10
+def test_openssh_capability_for_win11_server2022():
+    for v in (WinVersion.WIN11, WinVersion.SERVER2022):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "Add-WindowsCapability" in xml
+        assert "OpenSSH.Server~~~~0.0.1.0" in xml
+    for v in (WinVersion.WIN10, WinVersion.SERVER2016):
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "Add-WindowsCapability" not in xml
 
 
-def test_winget_windbg_all_versions():
+def test_winget_packages_all_versions():
     for v in WinVersion:
-        assert "Microsoft.WinDbg" in autounattend.winget_windbg_for(v)
+        xml = autounattend.generate_autounattend(Config(win_version=v))
+        assert "Microsoft.WinDbg" in xml
 
 
 def test_generate_is_well_formed_xml():
@@ -101,3 +112,68 @@ def test_generate_autounattend_matches_golden(version, filename):
     generated = autounattend.generate_autounattend(cfg)
     golden = (GOLDEN / filename).read_text()
     assert _strip_markers(generated) == _strip_markers(golden)
+
+
+# --- Settings-conditional tests ---
+
+def test_defender_enabled_skips_disable():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(defender=True))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "Services\\Sense" not in xml
+    assert "Services\\WinDefend" not in xml
+
+
+def test_defender_disabled_includes_disable():
+    cfg = Config(win_version=WinVersion.WIN11)
+    xml = autounattend.generate_autounattend(cfg)
+    assert "Services\\Sense" in xml
+    assert "Services\\WinDefend" in xml
+
+
+def test_rdp_disabled_removes_components():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(rdp=False))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "fDenyTSConnections" not in xml
+    assert "RemoteDesktop" not in xml
+
+
+def test_openssh_disabled():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(openssh=False))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "OpenSSH" not in xml
+    assert "sshd" not in xml
+
+
+def test_bloatware_removal_disabled():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(remove_bloatware=False))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "AppxProvisionedPackage" not in xml
+
+
+def test_custom_winget_packages():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(winget_packages=["My.Package"]))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "My.Package" in xml
+    assert "Microsoft.WinDbg" not in xml
+
+
+def test_no_winget_packages():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(winget_packages=[]))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "winget install" not in xml
+
+
+def test_locale_and_timezone():
+    cfg = Config(win_version=WinVersion.WIN11,
+                 settings=VMSettings(locale="fr-FR", timezone="Romance Standard Time"))
+    xml = autounattend.generate_autounattend(cfg)
+    assert "fr-FR" in xml
+    assert "en-US" not in xml
+    assert "Romance Standard Time" in xml
+    assert "UTC" not in xml

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from virt_install_windev.config import (
-    Config, WinVersion, VERSION_PARAMS, detect_win_version,
-    sanitize_computer_name,
+    Config, VMSettings, WinVersion, VERSION_PARAMS, detect_win_version,
+    sanitize_computer_name, settings_from_toml, vm_overrides_from_toml,
 )
 
 
@@ -66,3 +66,94 @@ def test_config_defaults():
 ])
 def test_sanitize_computer_name(name, expected):
     assert sanitize_computer_name(name) == expected
+
+
+def test_vmsettings_defaults():
+    s = VMSettings()
+    assert s.locale == "en-US"
+    assert s.timezone == "UTC"
+    assert s.defender is False
+    assert s.dark_mode is True
+    assert s.openssh is True
+    assert s.winget_packages == [
+        "Microsoft.WinDbg",
+        "Microsoft.Sysinternals.Suite",
+        "WinFsp.WinFsp",
+    ]
+
+
+def test_settings_from_toml_empty():
+    s = settings_from_toml({})
+    assert s == VMSettings()
+
+
+def test_settings_from_toml_partial():
+    data = {
+        "security": {"defender": True},
+        "desktop": {"dark_mode": False},
+        "packages": {"winget": ["My.Package"]},
+    }
+    s = settings_from_toml(data)
+    assert s.defender is True
+    assert s.dark_mode is False
+    assert s.winget_packages == ["My.Package"]
+    assert s.locale == "en-US"
+
+
+def test_settings_from_toml_all_sections():
+    data = {
+        "locale": {"language": "fr-FR", "timezone": "CET"},
+        "security": {"defender": True, "uac": True, "vbs": True},
+        "privacy": {"telemetry": 1, "recall": True, "copilot": True,
+                    "widgets": True, "consumer_features": True,
+                    "bing_search": True},
+        "updates": {"notify_only": False, "no_auto_reboot": False},
+        "desktop": {"dark_mode": False, "animations": True,
+                    "lock_screen": True},
+        "explorer": {"file_extensions": False, "hidden_files": False,
+                     "launch_to": "quick_access"},
+        "power": {"hibernation": True, "monitor_timeout": 10,
+                  "sleep_timeout": 30},
+        "developer": {"mode": False, "long_paths": False},
+        "apps": {"wsl": False, "remove_bloatware": False,
+                "bloatware_keep": ["Store"], "windows_terminal": False},
+        "packages": {"winget": []},
+        "services": {"openssh": False, "rdp": False,
+                     "rdp_usb_redirection": False},
+    }
+    s = settings_from_toml(data)
+    assert s.locale == "fr-FR"
+    assert s.timezone == "CET"
+    assert s.defender is True
+    assert s.telemetry == 1
+    assert s.animations is True
+    assert s.launch_to == "quick_access"
+    assert s.monitor_timeout == 10
+    assert s.wsl is False
+    assert s.winget_packages == []
+    assert s.openssh is False
+
+
+def test_vm_overrides_from_toml():
+    data = {
+        "vm": {"name": "myvm", "ram": 16384, "disk": 128, "user": "admin"},
+    }
+    overrides = vm_overrides_from_toml(data)
+    assert overrides == {
+        "name": "myvm",
+        "ram_mb": 16384,
+        "disk_gb": 128,
+        "user_name": "admin",
+    }
+
+
+def test_vm_overrides_from_toml_empty():
+    assert vm_overrides_from_toml({}) == {}
+    assert vm_overrides_from_toml({"vm": {}}) == {}
+
+
+def test_config_with_settings():
+    s = VMSettings(defender=True, locale="de-DE")
+    c = Config(settings=s)
+    assert c.settings.defender is True
+    assert c.settings.locale == "de-DE"
