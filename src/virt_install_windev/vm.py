@@ -60,7 +60,8 @@ def create_disk(config: Config) -> Path:
                 "Remove it first if you want a fresh install."
             )
 
-    run(["qemu-img", "create", "-f", "qcow2", str(disk), f"{config.disk_gb}G"])
+    run(["qemu-img", "create", "-f", "qcow2", str(disk), f"{config.disk_gb}G"],
+        capture=True)
     log(f"Created disk image: {disk} ({config.disk_gb} GiB)")
     return disk
 

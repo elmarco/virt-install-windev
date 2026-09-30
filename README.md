@@ -58,6 +58,7 @@ Options:
   --disk GB           Disk size in GiB (default: 64)
   --user NAME         Local admin username (default: user)
   --password PASS     Local admin password (default: pass)
+  --config PATH       TOML config file for VM settings (see Configuration below)
   --no-wait           Don't wait for installation to finish
   --force             Destroy and replace an existing VM with the same name
   --generate-only DIR Emit answer files to DIR and exit
@@ -67,7 +68,7 @@ For `--insider`, install the `selenium` extra: `pip install .[insider]`
 
 ## What gets configured
 
-The unattended install sets up a dev-friendly Windows environment:
+The unattended install sets up a dev-friendly Windows environment. Every setting below can be individually overridden via a [TOML config file](#configuration):
 
 - **VirtIO drivers** — fast paravirtualized disk, network, display, and memory balloon
 - **VirtIO guest tools** — SPICE agent (clipboard sharing, resolution), QEMU guest agent
@@ -93,6 +94,54 @@ The unattended install sets up a dev-friendly Windows environment:
 - **Sysinternals** — full Sysinternals Suite installed via winget
 - **WinFSP** — Windows File System Proxy installed via winget (user-mode file systems)
 - **RDP USB redirection** — RemoteFX USB and PnP redirection policies enabled (requires Server edition with RDSH role for server-side redirection; client editions only support the client side)
+
+## Configuration
+
+All VM settings can be customized via a TOML config file. A reference `config.toml` with all defaults commented out is included in the repository.
+
+```bash
+virt-install-windev --config myproject.toml
+```
+
+CLI flags override config file values. Settings not specified in the config file keep their defaults (identical to the behavior without `--config`).
+
+Example — a minimal VM with Defender enabled and no dev tools:
+
+```toml
+[vm]
+name = "wintest"
+ram = 4096
+disk = 32
+
+[security]
+defender = true
+
+[apps]
+wsl = false
+remove_bloatware = false
+
+[packages]
+winget = []
+
+[services]
+openssh = false
+```
+
+The config file supports these sections: `[vm]`, `[locale]`, `[security]`, `[privacy]`, `[updates]`, `[desktop]`, `[explorer]`, `[power]`, `[developer]`, `[apps]`, `[packages]`, `[services]`, and `[scripts]`. See `config.toml` for every setting and its default value.
+
+### Post-install scripts
+
+The `[scripts]` section can bundle additional PowerShell scripts into the answer ISO. They run after the built-in setup completes:
+
+```toml
+[scripts]
+post_install = [
+    "install-tools.ps1",
+    "configure-env.ps1",
+]
+```
+
+Paths are relative to the config file. The scripts are copied into the answer ISO and executed in order during the OOBE pass.
 
 ## Windows Server (2016 / 2022)
 
@@ -181,7 +230,7 @@ virsh undefine windev --nvram --tpm  # delete completely
 
 ## How it works
 
-The tool generates an `autounattend.xml` answer file and packages it into an ISO alongside a PowerShell setup script. This ISO is attached as a virtual CD-ROM. Windows automatically finds and processes the answer file during boot.
+The tool generates an `autounattend.xml` answer file and packages it into an ISO alongside a PowerShell setup script (and any post-install scripts from `--config`). This ISO is attached as a virtual CD-ROM. Windows automatically finds and processes the answer file during boot.
 
 Installation proceeds through three passes:
 

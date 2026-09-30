@@ -33,6 +33,92 @@ def error(what: str, hint: str | None = None) -> None:
         console.print(f"  Fix: {hint}")
 
 
+def _bool(val: bool) -> str:
+    return "[green]on[/green]" if val else "[red]off[/red]"
+
+
+def print_config_summary(config: Config) -> None:
+    s = config.settings
+
+    tbl = Table(show_header=False, box=None, padding=(0, 1))
+    tbl.add_column(style="bold")
+    tbl.add_column()
+
+    def _section(name: str) -> None:
+        tbl.add_row()
+        tbl.add_row(f"[bold cyan]{name}[/bold cyan]", "")
+
+    _section("VM")
+    tbl.add_row("  Windows", config.win_version.value)
+    tbl.add_row("  vCPUs", str(config.vcpus))
+    tbl.add_row("  RAM", f"{config.ram_mb} MiB")
+    tbl.add_row("  Disk", f"{config.disk_gb} GiB")
+    tbl.add_row("  User", config.user_name)
+    tbl.add_row("  Network", config.network)
+
+    _section("Locale")
+    tbl.add_row("  Language", s.locale)
+    tbl.add_row("  Timezone", s.timezone)
+
+    _section("Security")
+    tbl.add_row("  Defender", _bool(s.defender))
+    tbl.add_row("  UAC", _bool(s.uac))
+    tbl.add_row("  VBS", _bool(s.vbs))
+
+    _section("Privacy")
+    tbl.add_row("  Telemetry", str(s.telemetry))
+    tbl.add_row("  Recall", _bool(s.recall))
+    tbl.add_row("  Copilot", _bool(s.copilot))
+    tbl.add_row("  Widgets", _bool(s.widgets))
+    tbl.add_row("  Consumer features", _bool(s.consumer_features))
+    tbl.add_row("  Bing search", _bool(s.bing_search))
+
+    _section("Updates")
+    tbl.add_row("  Notify only", _bool(s.update_notify))
+    tbl.add_row("  No auto reboot", _bool(s.no_auto_reboot))
+
+    _section("Desktop")
+    tbl.add_row("  Dark mode", _bool(s.dark_mode))
+    tbl.add_row("  Animations", _bool(s.animations))
+    tbl.add_row("  Lock screen", _bool(s.lock_screen))
+
+    _section("Explorer")
+    tbl.add_row("  File extensions", _bool(s.file_extensions))
+    tbl.add_row("  Hidden files", _bool(s.hidden_files))
+    tbl.add_row("  Launch to", s.launch_to)
+
+    _section("Power")
+    tbl.add_row("  Hibernation", _bool(s.hibernation))
+    tbl.add_row("  Monitor timeout", f"{s.monitor_timeout} min")
+    tbl.add_row("  Sleep timeout", f"{s.sleep_timeout} min")
+
+    _section("Developer")
+    tbl.add_row("  Developer mode", _bool(s.developer_mode))
+    tbl.add_row("  Long paths", _bool(s.long_paths))
+
+    _section("Apps")
+    tbl.add_row("  WSL", _bool(s.wsl))
+    tbl.add_row("  Remove bloatware", _bool(s.remove_bloatware))
+    tbl.add_row("  Windows Terminal", _bool(s.windows_terminal))
+    if s.winget_packages:
+        tbl.add_row("  Winget packages", ", ".join(s.winget_packages))
+
+    _section("Services")
+    tbl.add_row("  OpenSSH", _bool(s.openssh))
+    tbl.add_row("  RDP", _bool(s.rdp))
+    tbl.add_row("  RDP USB redirection", _bool(s.rdp_usb_redirection))
+
+    if config.post_install_scripts:
+        _section("Scripts")
+        for p in config.post_install_scripts:
+            tbl.add_row("  Post-install", p.name)
+
+    console.print()
+    console.print(Panel(tbl, title=f"Configuration [bold]'{config.name}'[/bold]",
+                        border_style="blue", expand=False))
+    console.print()
+
+
 def print_vm_info(config: Config) -> None:
     from virt_install_windev.config import VERSION_PARAMS
 

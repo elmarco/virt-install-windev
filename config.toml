@@ -5,7 +5,7 @@
 # CLI flags override values set here.
 
 [vm]
-# name = "windev"
+name = "windev-test"
 # vcpus = 4
 # ram = 8192                    # MiB
 # disk = 64                     # GiB

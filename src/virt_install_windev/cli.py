@@ -11,7 +11,7 @@ from virt_install_windev.config import (
     Config, WinVersion, detect_win_version, sanitize_computer_name,
     VMSettings, settings_from_toml, vm_overrides_from_toml,
 )
-from virt_install_windev.ui import error, log, print_success, warn
+from virt_install_windev.ui import error, log, print_config_summary, print_success, warn
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -164,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
         post_install_scripts=post_install_scripts,
         **extra,
     )
+
+    print_config_summary(config)
 
     from virt_install_windev.autounattend import generate_autounattend
     from virt_install_windev.setup_ps1 import generate_setup_ps1
