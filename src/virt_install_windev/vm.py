@@ -5,10 +5,27 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
-from virt_install_windev.config import Config, WinVersion, VERSION_PARAMS
+from virt_install_windev.config import Config, VirtioChannel, WinVersion, VERSION_PARAMS
 from virt_install_windev.ui import StepTracker, log, print_vm_info, _DISK_PROGRESS
 from virt_install_windev.util import run, CommandError
+
+
+def _channel_arg(ch: VirtioChannel) -> str:
+    parsed = urlparse(ch.address)
+    scheme = parsed.scheme
+    name_part = f"target.type=virtio,target.name={ch.name}"
+    if scheme in ("tcp", "tls"):
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 0
+        arg = f"tcp,source.host={host},source.service={port},source.mode=connect"
+        if scheme == "tls":
+            arg += ",source.tls=yes"
+        return f"{arg},{name_part}"
+    if scheme == "unix":
+        return f"unix,source.path={parsed.path},{name_part}"
+    raise ValueError(f"unsupported channel scheme: {scheme!r} in {ch.address!r}")
 
 
 def _read_log(path: Path) -> str:
@@ -107,6 +124,8 @@ def create_and_start_vm(
     ]
     if config.iommu:
         cmd += ["--iommu", f"model={config.iommu}"]
+    for ch in config.channels:
+        cmd += ["--channel", _channel_arg(ch)]
     if config.settings.shared_folders:
         cmd += ["--memorybacking", "source.type=memfd,access.mode=shared"]
         for sf in config.settings.shared_folders:

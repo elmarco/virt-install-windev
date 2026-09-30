@@ -8,7 +8,8 @@ import threading
 from pathlib import Path
 
 from virt_install_windev.config import (
-    Config, WinVersion, detect_win_version, sanitize_computer_name,
+    Config, VirtioChannel, WinVersion, detect_win_version,
+    sanitize_computer_name,
     VMSettings, settings_from_toml, vm_overrides_from_toml,
 )
 from virt_install_windev.ui import error, log, print_config_summary, print_success, warn
@@ -79,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = VMSettings()
     toml_vm: dict = {}
     post_install_scripts: list[Path] = []
+    channels: list[VirtioChannel] = []
 
     if args.config:
         try:
@@ -106,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             post_install_scripts.append(script_path)
+
+        for entry in toml_data.get("vm", {}).get("channels", []):
+            channels.append(VirtioChannel(**entry))
 
     def _effective(attr: str) -> object:
         """Return the CLI value if explicitly provided, else the TOML override, else the parser default."""
@@ -161,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         iommu=args.iommu,
         kd=args.kd,
         settings=settings,
+        channels=channels,
         post_install_scripts=post_install_scripts,
         **extra,
     )

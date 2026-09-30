@@ -6,11 +6,12 @@ import subprocess
 
 import pytest
 
-from virt_install_windev.config import Config, WinVersion
+from virt_install_windev.config import Config, VirtioChannel, WinVersion
 from virt_install_windev.util import CommandError
 from virt_install_windev.vm import (
     _DISK_PROGRESS,
     _build_steps,
+    _channel_arg,
     _get_disk_target,
     _get_disk_writes,
     cleanup_install_logs,
@@ -134,3 +135,37 @@ def test_cleanup_install_logs_removes_files(tmp_path: Path):
 def test_cleanup_install_logs_missing_files_ok(tmp_path: Path):
     install_log = tmp_path / "testvm-install.log"
     cleanup_install_logs(install_log)
+
+
+def test_channel_arg_tcp():
+    ch = VirtioChannel(name="org.qemu.crash_collector.0",
+                       address="tcp://localhost:5555")
+    assert _channel_arg(ch) == (
+        "tcp,source.host=localhost,source.service=5555,source.mode=connect,"
+        "target.type=virtio,target.name=org.qemu.crash_collector.0"
+    )
+
+
+def test_channel_arg_tls():
+    ch = VirtioChannel(name="org.qemu.crash_collector.0",
+                       address="tls://localhost:5555")
+    assert _channel_arg(ch) == (
+        "tcp,source.host=localhost,source.service=5555,source.mode=connect,"
+        "source.tls=yes,"
+        "target.type=virtio,target.name=org.qemu.crash_collector.0"
+    )
+
+
+def test_channel_arg_unix():
+    ch = VirtioChannel(name="org.qemu.debug.0",
+                       address="unix:///tmp/debug.sock")
+    assert _channel_arg(ch) == (
+        "unix,source.path=/tmp/debug.sock,"
+        "target.type=virtio,target.name=org.qemu.debug.0"
+    )
+
+
+def test_channel_arg_bad_scheme():
+    ch = VirtioChannel(name="test", address="ftp://localhost:21")
+    with pytest.raises(ValueError, match="unsupported channel scheme"):
+        _channel_arg(ch)

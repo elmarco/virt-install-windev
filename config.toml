@@ -12,6 +12,10 @@ name = "windev-test"
 # user = "user"
 # password = "pass"
 # network = "bridge=virbr0"     # or "network=default"
+# channels = [                  # extra virtio channels
+#     { name = "org.qemu.crash_collector.0", address = "tcp://localhost:5555" },
+#     { name = "org.qemu.debug.0", address = "unix:///tmp/debug.sock" },
+# ]
 
 [locale]
 # language = "en-US"

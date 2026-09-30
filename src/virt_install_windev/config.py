@@ -31,6 +31,12 @@ VERSION_PARAMS: dict[WinVersion, VersionParams] = {
 
 
 @dataclass(frozen=True)
+class VirtioChannel:
+    name: str
+    address: str
+
+
+@dataclass(frozen=True)
 class SharedFolder:
     source: str
     tag: str = ""
@@ -185,6 +191,7 @@ class Config:
             os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
             "virt-install-windev"))
     settings: VMSettings = field(default_factory=VMSettings)
+    channels: list[VirtioChannel] = field(default_factory=list)
     post_install_scripts: list[Path] = field(default_factory=list)
 
 

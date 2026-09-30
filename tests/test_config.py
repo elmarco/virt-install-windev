@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from virt_install_windev.config import (
-    Config, SharedFolder, VMSettings, WinVersion, VERSION_PARAMS,
-    detect_win_version, sanitize_computer_name, settings_from_toml,
-    vm_overrides_from_toml,
+    Config, SharedFolder, VirtioChannel, VMSettings, WinVersion,
+    VERSION_PARAMS, detect_win_version, sanitize_computer_name,
+    settings_from_toml, vm_overrides_from_toml,
 )
 
 
@@ -50,6 +50,7 @@ def test_config_defaults():
     assert c.win_version is WinVersion.WIN11
     assert c.insider is False
     assert c.network == "bridge=virbr0"
+    assert c.channels == []
 
 
 @pytest.mark.parametrize("name, expected", [
