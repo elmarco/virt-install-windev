@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from virt_install_windev.config import (
-    Config, VMSettings, WinVersion, VERSION_PARAMS, detect_win_version,
-    sanitize_computer_name, settings_from_toml, vm_overrides_from_toml,
+    Config, SharedFolder, VMSettings, WinVersion, VERSION_PARAMS,
+    detect_win_version, sanitize_computer_name, settings_from_toml,
+    vm_overrides_from_toml,
 )
 
 
@@ -157,3 +158,58 @@ def test_config_with_settings():
     c = Config(settings=s)
     assert c.settings.defender is True
     assert c.settings.locale == "de-DE"
+
+
+def test_shared_folders_default_empty():
+    s = VMSettings()
+    assert s.shared_folders == []
+
+
+def test_shared_folder_tag_from_source():
+    sf = SharedFolder(source="/tmp/qemu-cc-panopticon")
+    assert sf.tag == "qemu-cc-panopticon"
+
+
+def test_shared_folder_explicit_tag():
+    sf = SharedFolder(source="/tmp/shared", tag="custom")
+    assert sf.tag == "custom"
+
+
+def test_shared_folder_readonly():
+    sf = SharedFolder(source="/tmp/shared", readonly=True)
+    assert sf.readonly is True
+    assert SharedFolder(source="/tmp/shared").readonly is False
+
+
+def test_settings_from_toml_shared_folders():
+    data = {
+        "sharing": {
+            "folders": [
+                {"source": "/tmp/shared", "tag": "my-share"},
+                {"source": "/home/user/data", "tag": "data"},
+            ],
+        },
+    }
+    s = settings_from_toml(data)
+    assert s.shared_folders == [
+        SharedFolder(source="/tmp/shared", tag="my-share"),
+        SharedFolder(source="/home/user/data", tag="data"),
+    ]
+
+
+def test_settings_from_toml_shared_folders_string_form():
+    data = {
+        "sharing": {
+            "folders": ["/tmp/shared", "/home/user/data"],
+        },
+    }
+    s = settings_from_toml(data)
+    assert s.shared_folders == [
+        SharedFolder(source="/tmp/shared", tag="shared"),
+        SharedFolder(source="/home/user/data", tag="data"),
+    ]
+
+
+def test_settings_from_toml_no_sharing_section():
+    s = settings_from_toml({})
+    assert s.shared_folders == []

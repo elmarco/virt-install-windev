@@ -107,6 +107,13 @@ def create_and_start_vm(
     ]
     if config.iommu:
         cmd += ["--iommu", f"model={config.iommu}"]
+    if config.settings.shared_folders:
+        cmd += ["--memorybacking", "source.type=memfd,access.mode=shared"]
+        for sf in config.settings.shared_folders:
+            fs = f"driver.type=virtiofs,source.dir={sf.source},target.dir={sf.tag}"
+            if sf.readonly:
+                fs += ",readonly=on"
+            cmd += ["--filesystem", fs]
     run(cmd)
 
 
@@ -199,6 +206,8 @@ def _build_steps(config: Config) -> list[tuple[str, str]]:
         steps.append(("[OOBE] Removing bloatware", "Removing bloatware"))
     if s.winget_packages:
         steps.append(("[OOBE] Installing packages", "Installing packages via winget"))
+    if s.shared_folders:
+        steps.append(("[OOBE] Starting VirtIO-FS service", "Starting VirtIO-FS service"))
     if config.post_install_scripts:
         steps.append(("[OOBE] Running post-install", "Running post-install scripts"))
     steps.append(("INSTALLATION_COMPLETE", "Installation complete"))

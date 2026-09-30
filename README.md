@@ -127,7 +127,21 @@ winget = []
 openssh = false
 ```
 
-The config file supports these sections: `[vm]`, `[locale]`, `[security]`, `[privacy]`, `[updates]`, `[desktop]`, `[explorer]`, `[power]`, `[developer]`, `[apps]`, `[packages]`, `[services]`, and `[scripts]`. See `config.toml` for every setting and its default value.
+The config file supports these sections: `[vm]`, `[locale]`, `[security]`, `[privacy]`, `[updates]`, `[desktop]`, `[explorer]`, `[power]`, `[developer]`, `[apps]`, `[packages]`, `[services]`, `[sharing]`, and `[scripts]`. See `config.toml` for every setting and its default value.
+
+### Shared folders (virtiofs)
+
+The `[sharing]` section configures virtiofs shared folders between the host and guest. Each folder maps a host directory to a guest drive letter:
+
+```toml
+[sharing]
+folders = [
+    "/tmp/shared",                                              # tag derived from directory name
+    { source = "/tmp/data", tag = "custom-tag", readonly = true },
+]
+```
+
+The tag (the virtiofs mount identifier) defaults to the directory name when omitted. Set `readonly = true` to mount the share read-only in the guest. This passes a virtiofs filesystem device to the VM and automatically starts the VirtIO-FS service during setup. The shared folder appears as a drive letter (typically `Z:`) in the Windows guest. Requires WinFSP (included in the default `winget` packages).
 
 ### Post-install scripts
 

@@ -313,6 +313,16 @@ def _firstlogon_cmds(config: Config) -> list[str]:
                 ' --accept-source-agreements --accept-package-agreements'
                 ' --silent')
 
+    if s.shared_folders:
+        cmds.append(
+            'cmd /c "echo [OOBE] Starting VirtIO-FS service'
+            ' > COM1 || exit /b 0"')
+        cmds.append(
+            'powershell -Command "'
+            "Set-Service -Name VirtioFsSvc -StartupType Automatic"
+            " -ErrorAction Continue;"
+            ' Start-Service VirtioFsSvc -ErrorAction Continue"')
+
     if config.post_install_scripts:
         cmds.append(
             'cmd /c "echo [OOBE] Running post-install scripts'

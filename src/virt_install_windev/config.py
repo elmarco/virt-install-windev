@@ -30,6 +30,17 @@ VERSION_PARAMS: dict[WinVersion, VersionParams] = {
 }
 
 
+@dataclass(frozen=True)
+class SharedFolder:
+    source: str
+    tag: str = ""
+    readonly: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.tag:
+            object.__setattr__(self, "tag", Path(self.source).name)
+
+
 @dataclass
 class VMSettings:
     locale: str = "en-US"
@@ -71,6 +82,7 @@ class VMSettings:
     openssh: bool = True
     rdp: bool = True
     rdp_usb_redirection: bool = True
+    shared_folders: list[SharedFolder] = field(default_factory=list)
 
 
 _TOML_SETTINGS_MAP: list[tuple[str, str, str]] = [
@@ -124,6 +136,15 @@ def settings_from_toml(data: dict[str, Any]) -> VMSettings:
     for section, key, field_name in _TOML_SETTINGS_MAP:
         if section in data and key in data[section]:
             kwargs[field_name] = data[section][key]
+    raw_folders = data.get("sharing", {}).get("folders", [])
+    if raw_folders:
+        folders = []
+        for entry in raw_folders:
+            if isinstance(entry, str):
+                folders.append(SharedFolder(source=entry))
+            else:
+                folders.append(SharedFolder(**entry))
+        kwargs["shared_folders"] = folders
     return VMSettings(**kwargs)
 
 

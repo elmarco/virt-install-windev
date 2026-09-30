@@ -78,5 +78,11 @@ name = "windev-test"
 # rdp = true                    # Remote Desktop Protocol
 # rdp_usb_redirection = true    # RemoteFX USB device redirection policies
 
+[sharing]
+# folders = [                   # virtiofs shared folders (host path → guest drive)
+#     "/tmp/shared",            # tag defaults to directory name ("shared")
+#     { source = "/tmp/data", tag = "custom-tag", readonly = true },
+# ]
+
 [scripts]
 # post_install = []             # PowerShell scripts to run after setup (paths relative to this file)
